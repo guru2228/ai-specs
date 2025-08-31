@@ -1,0 +1,6 @@
+apiVersion: ai.specs/v1alpha7
+kind: Agent
+metadata:
+  name: appointment-agent
+spec:
+  description: Schedules appointments for patients

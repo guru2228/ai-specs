@@ -1,0 +1,6 @@
+apiVersion: ai.specs/v1alpha7
+kind: Agent
+metadata:
+  name: care-manager-agent
+spec:
+  description: Coordinates care managers
