@@ -1,0 +1,6 @@
+apiVersion: ai.specs/v1alpha1
+kind: AgentWorkflow
+metadata:
+  name: template-workflow
+spec:
+  description: Template workflow configuration

@@ -1,0 +1,6 @@
+apiVersion: ai.specs/v1alpha1
+kind: AgentWorkflow
+metadata:
+  name: post-acute-care-workflow
+spec:
+  description: Coordinates post-acute care activities

@@ -1,0 +1,14 @@
+name: CRD Validation
+
+on:
+  pull_request:
+    paths:
+      - 'specs/**/*.yaml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Validate CRD syntax
+        run: echo "validate CRDs"

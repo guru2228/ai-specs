@@ -1,0 +1,6 @@
+apiVersion: ai.specs/v1alpha1
+kind: AgentWorkflow
+metadata:
+  name: prior-auth-workflow
+spec:
+  description: Orchestrates prior authorization steps

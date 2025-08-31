@@ -1,0 +1,6 @@
+apiVersion: ai.specs/v1alpha1
+kind: AgentWorkflow
+metadata:
+  name: chronic-care-workflow
+spec:
+  description: Manages chronic care workflows

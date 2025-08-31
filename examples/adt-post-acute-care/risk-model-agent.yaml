@@ -1,0 +1,6 @@
+apiVersion: ai.specs/v1alpha7
+kind: Agent
+metadata:
+  name: risk-model-agent
+spec:
+  description: Runs risk models for post-acute care

@@ -1,0 +1,6 @@
+apiVersion: ai.specs/v1alpha7
+kind: Agent
+metadata:
+  name: med-management-agent
+spec:
+  description: Manages medications during transitions
