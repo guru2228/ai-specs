@@ -1,0 +1,111 @@
+<!--
+Thank you for your contribution to the Optum AI Agent Framework!
+
+To help reviewers and maintainers understand your changes, please fill out this template.
+This is a living document—if you have suggestions for improving it, please open an issue!
+-->
+
+## 📝 Description of Changes
+
+<!--
+Please provide a clear and concise summary of the changes.
+- **What** was changed? (e.g., "Added `loopConfig` to the AgentWorkflow spec.")
+- **Why** was this change made? (e.g., "To support iterative processes in workflows.")
+- **How** does it work? (e.g., "The orchestrator will now check for `loopConfig` when `mode` is 'Loop'.")
+-->
+
+## ✅ Type of Change
+
+<!-- Please check the boxes that apply. -->
+
+- [ ] **Bug Fix**: A non-breaking change that fixes an issue.
+- [ ] **New Feature**: A non-breaking change that adds new functionality.
+- [ ] **Breaking Change**: A fix or feature that would cause existing functionality to not work as expected.
+- [ ] **Documentation**: A change to guides, READMEs, or other documentation.
+- [ ] **Examples**: Adding or updating example YAML files.
+- [ ] **Prompt Library**: Changes to the Prompt Object Markup Language (POML) library.
+- [ ] **Refactoring**: A code change that neither fixes a bug nor adds a feature.
+- [ ] **Chore**: Routine maintenance (e.g., updating dependencies, fixing typos).
+
+## 🔗 Related Issue
+
+<!-- If this PR addresses a specific issue, please link to it here. -->
+<!-- E.g., "Closes #123" or "Fixes #456" -->
+
+- Related to: #
+
+## 🎯 Scope of Change
+
+<!-- Please check the boxes that apply to indicate which parts of the repository are affected. -->
+
+- [ ] **Agent Spec (`agent-spec.txt`)**: Changes to the core Agent CRD.
+- [ ] **AgentWorkflow Spec (`agentworkflow-spec.txt`)**: Changes to the AgentWorkflow CRD.
+- [ ] **KnowledgeBase Spec (`kb-spec.txt`)**: Changes to the KnowledgeBase CRD.
+- [ ] **Developer Guides**: Updates to the markdown guides.
+- [ ] **Examples**: New or modified example YAML files.
+- [ ] **Prompt Library (`/prompts`)**: Changes to prompt templates.
+- [ ] **CI/CD or Tooling**: Changes to GitHub Actions, scripts, etc.
+
+---
+
+## 💥 Impact Analysis
+
+<!--
+This is a critical section for a repository managing specifications. Please think carefully about the impact of your changes.
+-->
+
+#### Is this a breaking change?
+- [ ] Yes
+- [ ] No
+
+<!-- If yes, please describe the impact and the migration path for existing users. -->
+
+#### How will this change affect existing Agents, Workflows, or KnowledgeBases?
+<!-- e.g., "Existing workflows without `loopConfig` will continue to function as before. No migration is needed." -->
+<!-- e.g., "This deprecates the `oldField` in favor of `newField`. We will support both for two minor versions." -->
+
+#### Are there any new security considerations?
+<!-- e.g., "The new `customScript` field in the spec could introduce a remote code execution risk if not properly sanitized by the runtime." -->
+
+#### Does this change require updates to the runtime environment or related tooling?
+<!-- e.g., "Yes, the agent runtime will need to be updated to recognize and handle the new `Aggregate` mode in workflows." -->
+
+---
+
+## 🧪 Testing and Validation
+
+<!--
+Please describe the tests that you ran to verify your changes.
+- For spec changes: How did you validate the new schema? (e.g., "Validated with `kubeval` and manually reviewed for logical consistency.")
+- For examples: Have you confirmed they are valid against the latest spec? (e.g., "Ran `kubectl apply --dry-run=client -f example.yaml`.")
+- For guides: How did you check for correctness and clarity? (e.g., "Proofread the document and verified all field names match the latest spec.")
+-->
+
+## 📚 Documentation Updates
+
+<!-- Have the changes been reflected in the documentation? -->
+
+- [ ] **The relevant Developer Guide has been updated.** (e.g., `agent-spec-guide.md`)
+- [ ] **A new example has been added or an existing one has been updated.**
+- [ ] **This change does not require any documentation updates.**
+- [ ] **I have opened a separate issue to track the documentation updates.**
+
+---
+
+##  checklist Self-Review Checklist
+
+<!-- Please go over your own PR and check the following points. -->
+
+- [ ] My PR has a clear, descriptive title.
+- [ ] I have read the [**contributing guidelines**]() (link to your `CONTRIBUTING.md`).
+- [ ] I have commented on my code, particularly in hard-to-understand areas.
+- [ ] I have performed a self-review of my own changes.
+- [ ] My changes generate no new warnings or errors.
+- [ ] I have linked this PR to a relevant issue.
+
+---
+
+### 💬 Notes for the Reviewer
+
+<!-- Is there anything specific you would like the reviewer to focus on? -->
+<!-- e.g., "I'm not sure about the naming of the `loopConfig` field, open to suggestions!" -->
