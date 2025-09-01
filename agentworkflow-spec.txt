@@ -13,7 +13,7 @@ spec:
     singular: agentworkflow
     shortNames: [awf]
   versions:
-  - name: v1alpha1
+  - name: v1alpha2 # Updated version
     served: true
     storage: true
     subresources:
@@ -35,7 +35,7 @@ spec:
         properties:
           apiVersion: { type: string }
           kind: { type: string }
-          meta { type: object }
+          metadata: { type: object }
           spec:
             type: object
             required: [ownership, orchestration, topology] # participants are optional if inlineOrchestrator is used and steps reference external agents
@@ -47,12 +47,15 @@ spec:
               # Ensure step.agentAlias references a declared participant or is an external reference
               - rule: "self.topology.steps.all(s, has(s.agentRef) || (has(self.participants) && self.participants.exists(p, p.alias == s.agentAlias)) || (has(self.inlineOrchestrator) && self.orchestration.orchestrator == s.agentAlias))"
                 message: "Each step.agentAlias must reference a participants[].alias, the inlineOrchestrator's alias (if defined), or use agentRef for external agents."
-              # For Network mode, dependencies must reference existing step names
-              - rule: "self.topology.mode != 'Network' || self.topology.steps.all(s, !has(s.dependencies) || s.dependencies.all(d, self.topology.steps.exists(ss, ss.name == d)))"
-                message: "Network dependencies must reference valid step names"
+              # For Network/Aggregate mode, dependencies must reference existing step names
+              - rule: "!(self.topology.mode in ['Network', 'Aggregate']) || self.topology.steps.all(s, !has(s.dependencies) || s.dependencies.all(d, self.topology.steps.exists(ss, ss.name == d)))"
+                message: "Network/Aggregate dependencies must reference valid step names"
               # Ensure at least 1 participant or inlineOrchestrator AND steps exist
               - rule: "(has(self.participants) && size(self.participants) >= 1) || has(self.inlineOrchestrator)"
                 message: "At least one participant is required, or an inlineOrchestrator must be defined."
+              # Loop mode requires at least one step with loopConfig or a global loop definition (conceptual)
+              # - rule: "self.topology.mode != 'Loop' || self.topology.steps.exists(s, has(s.loopConfig))"
+              #   message: "Loop mode requires at least one step with loopConfig."
             properties:
               identity: # Optional stable identity for the workflow
                 type: object
@@ -125,7 +128,7 @@ spec:
                 type: object
                 required: [spec] # Must have a full agent spec
                 properties:
-                  meta # Optional metadata for the inline orchestrator
+                  metadata: # Optional metadata for the inline orchestrator
                     type: object
                     description: "Metadata for the inline orchestrator Agent (name, labels, annotations)."
                   spec: # Full AgentSpec for the orchestrator
@@ -206,16 +209,25 @@ spec:
                 properties:
                   mode: # Orchestration mode
                     type: string
-                    enum: [Sequential, Hierarchical, Parallel, Network]
-                    description: "The overall pattern of orchestration."
+                    enum: [Sequential, Hierarchical, Parallel, Network, Aggregate, Loop] # Added Aggregate, Loop
+                    description: |
+                      The overall pattern of orchestration.
+                      - Sequential: Steps execute one after another in the order defined.
+                      - Hierarchical: Steps might involve sub-workflows or layered decision-making (managed by orchestrator prompt/tools).
+                      - Parallel: Independent steps execute concurrently.
+                      - Network: Steps execute based on complex dependency graphs defined in 'dependencies'.
+                      - Aggregate: A step waits for ALL specified dependencies to complete before starting.
+                      - Loop: The workflow contains iterative logic, managed by the orchestrator or step configuration.
                   steps: # List of workflow steps
                     type: array
                     minItems: 1
+                    # x-kubernetes-list-type: atomic # Ensures order is preserved
                     items:
                       type: object
-                      required: [name, task]
+                      required: [name, task] # agentAlias or agentRef is needed at runtime
                       properties:
                         name: { type: string, description: "A unique name for this step in the workflow." }
+                        order: { type: integer, description: "Explicit ordinal position for the step (optional, array order is primary)." } # Added order
                         agentAlias: { type: string, description: "The alias of the agent performing this step (must match a participant or be the inline orchestrator). Mutually exclusive with agentRef." }
                         agentRef: # Direct reference to an external agent for this step
                           type: object
@@ -234,15 +246,27 @@ spec:
                         condition: # Conditional execution (CEL-like)
                           type: string
                           description: "CEL-like boolean condition for conditional routing (e.g., 'steps.triage.output.priority == \"High\"')."
-                        dependencies: # Dependencies for Network mode
+                        dependencies: # Dependencies for Network/Aggregate mode
                           type: array
-                          items: { type: string, description: "Names of steps that must complete before this one (for Network mode)." }
+                          items: { type: string, description: "Names of steps that must influence this one's execution. For 'Network', defines predecessors. For 'Aggregate', step waits for ALL listed to complete." }
                         onError: # Error handling strategy for the step
                           type: object
                           properties:
                             strategy: { type: string, enum: [FailFast, Continue, Retry], description: "Error handling strategy." }
                             maxRetries: { type: integer, description: "Maximum number of retries if strategy is Retry." }
                             backoffMs: { type: integer, description: "Base backoff time in milliseconds for retries." }
+                        loopConfig: # Configuration for looping logic (relevant for 'Loop' mode or steps within a loop)
+                          type: object
+                          description: "Configuration for iterative execution logic associated with this step or the workflow if mode is 'Loop'."
+                          properties:
+                            # The specifics here depend on how the orchestrator implements loops.
+                            # It could involve max iterations, a condition to check, or rely on the agent's response.
+                            maxIterations: { type: integer, description: "Maximum number of iterations allowed." }
+                            # condition: { type: string, description: "CEL-like condition to determine if the loop should continue." } # Example
+                            # loopVariable: { type: string, description: "Name of the variable to update/track across iterations." } # Example
+                        # Potentially add timeout/retry overrides specific to this step?
+                        # timeoutMs: { type: integer, description: "Timeout for this specific step (overrides global)." }
+                        # retryConfig: { type: object, description: "Retry config for this specific step (overrides global)." } # Similar to onError but structured
               variables: # Named variables available to steps (template rendering)
                 description: "Named variables available to steps (rendered via template)."
                 type: object
