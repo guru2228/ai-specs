@@ -1,0 +1,26 @@
+apiVersion: ai.sage/v1alpha9
+kind: Agent
+metadata: { name: clinical-summarizer }
+spec:
+  identity: { urn: "urn:agent:clinical:summarizer:1", displayName: "Clinical Summarizer", version: "1.2.3" }
+  role: "Clinical Summarizer"
+  goal: "Summarize clinical notes and extract coded facts"
+  ioConfig: { inputs: [{ format: text }, { format: json }], outputs: [{ format: json, contentTypes: ["application/json"] }] }
+  llmGateways: [ { identity: { urn: "urn:gateway:azure" }, endpoint: "https://my-org.openai.azure.com", vendor: AzureOpenAI, defaultModel: "gpt-4o", authentication: { type: ManagedIdentity } } ]
+  llm: { gatewayRef: { urn: "urn:gateway:azure" }, model: "gpt-4o" }
+  mcpServers:
+    - identity: { urn: "urn:mcp:ingest" }
+      url: "https://mcp.example.com/ingest"
+      protocol: https
+      authentication: { type: ApiKey, apiKey: { headerName: "x-api-key", secretRef: { keyName: "MCP_INGEST_API_KEY" } } }
+  tools:
+    - name: upsert-docs
+      description: "Upsert clinical docs"
+      mcp: { serverRef: { urn: "urn:mcp:ingest" }, toolName: "upsert_documents" }
+  a2a:
+    card:
+      protocolVersion: "0.3.0"
+      preferredInterface: { url: "https://api.example.com/agents/clinical", transport: "HTTP+JSON" }
+      defaultInputModes: ["application/json"]
+      defaultOutputModes: ["application/json"]
+      skills: [{ id: "chat", name: "Chat", description: "Conversational summary" }]

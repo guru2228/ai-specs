@@ -1,0 +1,13 @@
+apiVersion: ai.sage/v1alpha9
+kind: Agent
+metadata: { name: router-agent }
+spec:
+  identity: { urn: "urn:agent:router:prod", displayName: "Router Agent", version: "2.0.0" }
+  role: "Task Router"
+  goal: "Route requests to specialized agents based on intent"
+  ioConfig: { inputs: [{ format: json, contentTypes: ["application/json"] }], outputs: [{ format: json, contentTypes: ["application/json"] }] }
+  llmGateways: [ { identity: { urn: "urn:gateway:openai" }, endpoint: "https://api.openai.com/v1", vendor: OpenAI, defaultModel: "gpt-4o-mini", authentication: { type: ApiKey } } ]
+  llm: { gatewayRef: { urn: "urn:gateway:openai" }, model: "gpt-4o-mini" }
+  mcpServers: [ { identity: { urn: "urn:mcp:a2a" }, url: "https://registry.example.com/mcp", protocol: https, authentication: { type: OIDC } } ]
+  tools: [ { name: "invoke-agent", description: "Call downstream agents via A2A", mcp: { serverRef: { urn: "urn:mcp:a2a" }, toolName: "invoke_agent" } } ]
+  a2a: { publishTo: [ { registryRef: { urn: "urn:registry:agents:prod" }, visibility: tenant } ] }

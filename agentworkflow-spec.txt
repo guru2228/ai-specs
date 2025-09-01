@@ -1,0 +1,337 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agentworkflows.agents.enterprise.com
+spec:
+  group: agents.enterprise.com
+  scope: Namespaced
+  names:
+    kind: AgentWorkflow
+    listKind: AgentWorkflowList
+    plural: agentworkflows
+    singular: agentworkflow
+    shortNames: [awf]
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - name: Mode
+      type: string
+      jsonPath: .spec.topology.mode
+    - name: Orchestrator
+      type: string
+      jsonPath: .spec.orchestration.orchestrator
+    - name: Phase
+      type: string
+      jsonPath: .status.phase
+    schema:
+      openAPIV3Schema:
+        description: AgentWorkflow orchestrates multiple Agents using A2A or local calls. It can define its own Orchestrator Agent.
+        type: object
+        properties:
+          apiVersion: { type: string }
+          kind: { type: string }
+          meta { type: object }
+          spec:
+            type: object
+            required: [ownership, orchestration, topology] # participants are optional if inlineOrchestrator is used and steps reference external agents
+            # Validation rules for internal consistency
+            x-kubernetes-validations:
+              # Ensure the orchestrator alias references a declared participant or the inline orchestrator
+              - rule: "has(self.inlineOrchestrator) || (has(self.participants) && self.participants.exists(p, p.alias == self.orchestration.orchestrator))"
+                message: "orchestration.orchestrator must reference a participants[].alias or an inlineOrchestrator must be provided."
+              # Ensure step.agentAlias references a declared participant or is an external reference
+              - rule: "self.topology.steps.all(s, has(s.agentRef) || (has(self.participants) && self.participants.exists(p, p.alias == s.agentAlias)) || (has(self.inlineOrchestrator) && self.orchestration.orchestrator == s.agentAlias))"
+                message: "Each step.agentAlias must reference a participants[].alias, the inlineOrchestrator's alias (if defined), or use agentRef for external agents."
+              # For Network mode, dependencies must reference existing step names
+              - rule: "self.topology.mode != 'Network' || self.topology.steps.all(s, !has(s.dependencies) || s.dependencies.all(d, self.topology.steps.exists(ss, ss.name == d)))"
+                message: "Network dependencies must reference valid step names"
+              # Ensure at least 1 participant or inlineOrchestrator AND steps exist
+              - rule: "(has(self.participants) && size(self.participants) >= 1) || has(self.inlineOrchestrator)"
+                message: "At least one participant is required, or an inlineOrchestrator must be defined."
+            properties:
+              identity: # Optional stable identity for the workflow
+                type: object
+                description: "Optional stable identity for the workflow (URN/UUID)."
+                properties:
+                  urn: { type: string, description: "Unique Resource Name for the workflow." }
+                  uuid: { type: string, format: uuid, description: "Universally Unique Identifier for the workflow." }
+                  displayName: { type: string, description: "Human-readable name for the workflow." }
+                  version: { type: string, description: "Semantic version of the workflow definition." }
+              ownership: # Ownership details
+                description: "Owning entity and contacts."
+                type: object
+                required: [team]
+                properties:
+                  team: { type: string, description: "Owning team (required)." }
+                  organization: { type: string, description: "Owning organization." }
+                  user: { type: string, description: "Primary contact user." }
+                  askId: { type: string, description: "Internal identifier for the originating request/ask." }
+                  sloEmail: { type: string, format: email, description: "Email for SLO notifications." }
+              description: # Workflow description
+                type: string
+                minLength: 20
+                description: "A detailed description of what this workflow accomplishes."
+              context: # Deployment/operational context
+                type: object
+                properties:
+                  tenantId: { type: string, description: "Tenant identifier for multi-tenancy." }
+                  workspaceId: { type: string, description: "Workspace identifier within a tenant." }
+                  environment: # Operational environment
+                    type: string
+                    enum: [playground, dev, test, stage, prod]
+                    description: "The environment the workflow is intended for."
+                  labels: # Key-value labels for organization
+                    type: object
+                    additionalProperties: { type: string }
+                  tags: # Simple tags
+                    type: array
+                    items: { type: string }
+              participants: # List of participating agents (excluding inline orchestrator)
+                description: "Agents participating in the workflow (excluding the inline orchestrator if defined)."
+                type: array
+                minItems: 1 # Minimum is 1 if inline orchestrator is not used
+                items:
+                  type: object
+                  required: [alias] # agentRef is optional if agent is defined elsewhere or discovered
+                  properties:
+                    alias: # Unique alias for the agent within the workflow
+                      type: string
+                      description: "Unique name used within topology to reference this participant."
+                    # Reference a deployed Agent by K8s name, and/or logical identity
+                    agentRef: # Reference to the deployed Agent resource
+                      type: object
+                      properties:
+                        name: { type: string, description: "Name of the deployed Agent resource in the same namespace." }
+                        identityRef: # Logical identity reference
+                          type: object
+                          properties:
+                            urn: { type: string, description: "URN of the logical agent identity." }
+                            uuid: { type: string, format: uuid, description: "UUID of the logical agent identity." }
+                    # Optional per-participant overrides for this workflow instance
+                    overrides:
+                      type: object
+                      properties:
+                        llmModel: { type: string, description: "Override the LLM model for this agent in this workflow." }
+                        temperature: { type: number, description: "Override the LLM temperature for this agent in this workflow." }
+                        rateLimit: { type: integer, description: "Override the rate limit (rpm) for this agent in this workflow." }
+                        timeoutMs: { type: integer, description: "Override the default timeout (ms) for this agent in this workflow." }
+              inlineOrchestrator: # Definition for an orchestrator agent embedded within the workflow
+                description: "An inline definition of the Orchestrator Agent. If provided, this agent is used as the orchestrator and is implicitly a participant."
+                type: object
+                required: [spec] # Must have a full agent spec
+                properties:
+                  meta # Optional metadata for the inline orchestrator
+                    type: object
+                    description: "Metadata for the inline orchestrator Agent (name, labels, annotations)."
+                  spec: # Full AgentSpec for the orchestrator
+                    type: object
+                    description: "Full AgentSpec defining the orchestrator agent."
+                    # Inherit properties from AgentSpec schema (simplified here)
+                    # Include core required fields and relevant optional ones
+                    required: [role, goal, systemPrompt, llm, ownership] # Core agent fields
+                    properties:
+                      # Ownership (could inherit from workflow or be specific)
+                      ownership:
+                        type: object
+                        required: [team] # Still require team
+                        properties:
+                          organization: { type: string }
+                          team: { type: string } # Should ideally match workflow team
+                          user: { type: string }
+                          sloEmail: { type: string }
+                          askId: { type: string }
+                      role: { type: string } # e.g., "Workflow Orchestrator"
+                      goal: { type: string } # e.g., "Orchestrate the defined workflow steps."
+                      backstory: { type: string }
+                      systemPrompt: { type: string } # Critical for orchestrator behavior
+                      promptTemplateRef: { type: string }
+                      llm: { type: object } # LLM config for orchestrator
+                      llmGateways: { type: array, items: { type: object } } # LLM gateways for orchestrator
+                      # Tools for the orchestrator (e.g., for workflow control)
+                      mcpServers: { type: array, items: { type: object } } # MCP servers for orchestrator tools
+                      tools: { type: array, items: { type: object } } # Tools bound to the orchestrator
+                      # State Management for the orchestrator
+                      stateManagement:
+                        type: object
+                        properties:
+                          memory: # Short-term conversational memory
+                            type: object
+                            properties:
+                              type: { type: string, enum: [InMemory, Redis, Postgres], description: "Type of memory store." }
+                              retentionPolicy: { type: string, description: "Policy for retaining memory data (e.g., 'session', 'lastN', 'timeWindow')." }
+                          session: # Longer-term user session data
+                            type: object
+                            properties:
+                              ttlSeconds: { type: integer, description: "Time-to-live for session data in seconds." }
+                              store: { type: string, enum: [InMemory, Redis, Postgres], description: "Type of session store." }
+                      # Other relevant fields like ioConfig, behavior, etc. can be included
+                      # Note: This is a simplified representation. In practice, you'd embed the full AgentSpec schema here.
+              orchestration: # Orchestration configuration
+                description: "Orchestrator & inter-agent protocol."
+                type: object
+                required: [orchestrator, protocol]
+                properties:
+                  orchestrator: # Alias of the orchestrator (must match participant or be 'inline')
+                    type: string
+                    description: "The alias of the agent responsible for managing the workflow execution. Use 'inline' if defining the orchestrator within this workflow."
+                  protocol: # Inter-agent communication protocol
+                    type: object
+                    required: [type]
+                    properties:
+                      type: { type: string, enum: [A2A, Local], description: "Protocol for agent communication (A2A or Local calls)." }
+                      a2a: # A2A-specific configuration
+                        type: object
+                        properties:
+                          registryServer: { type: string, format: uri, description: "URL of the A2A Registry Server for agent discovery." }
+                          # Optional auth & discovery hints for the registry
+                          registryIdentity:
+                            type: object
+                            properties:
+                              urn: { type: string, description: "URN of the A2A registry." }
+                              uuid: { type: string, format: uuid, description: "UUID of the A2A registry." }
+                      local: # Local-specific configuration
+                        type: object
+                        properties:
+                          # Call by Kubernetes Service name/DNS if not using A2A
+                          serviceDiscovery: { type: string, description: "Service discovery mechanism for local calls (e.g., DNS)." }
+              topology: # Workflow structure and steps
+                description: "Workflow structure and steps."
+                type: object
+                required: [mode, steps]
+                properties:
+                  mode: # Orchestration mode
+                    type: string
+                    enum: [Sequential, Hierarchical, Parallel, Network]
+                    description: "The overall pattern of orchestration."
+                  steps: # List of workflow steps
+                    type: array
+                    minItems: 1
+                    items:
+                      type: object
+                      required: [name, task]
+                      properties:
+                        name: { type: string, description: "A unique name for this step in the workflow." }
+                        agentAlias: { type: string, description: "The alias of the agent performing this step (must match a participant or be the inline orchestrator). Mutually exclusive with agentRef." }
+                        agentRef: # Direct reference to an external agent for this step
+                          type: object
+                          description: "Direct reference to an agent for this step, bypassing participants list. Mutually exclusive with agentAlias."
+                          properties:
+                            name: { type: string, description: "Name of the deployed Agent resource in the same namespace." }
+                            identityRef: # Logical identity reference
+                              type: object
+                              properties:
+                                urn: { type: string, description: "URN of the logical agent identity." }
+                                uuid: { type: string, format: uuid, description: "UUID of the logical agent identity." }
+                        task: { type: string, description: "The specific instruction or goal for the agent in this step." }
+                        input: # Source of input for the step
+                          type: string
+                          description: "Source of the input for this step (e.g., 'workflow.initialInput' or 'steps.step_name.output')."
+                        condition: # Conditional execution (CEL-like)
+                          type: string
+                          description: "CEL-like boolean condition for conditional routing (e.g., 'steps.triage.output.priority == \"High\"')."
+                        dependencies: # Dependencies for Network mode
+                          type: array
+                          items: { type: string, description: "Names of steps that must complete before this one (for Network mode)." }
+                        onError: # Error handling strategy for the step
+                          type: object
+                          properties:
+                            strategy: { type: string, enum: [FailFast, Continue, Retry], description: "Error handling strategy." }
+                            maxRetries: { type: integer, description: "Maximum number of retries if strategy is Retry." }
+                            backoffMs: { type: integer, description: "Base backoff time in milliseconds for retries." }
+              variables: # Named variables available to steps (template rendering)
+                description: "Named variables available to steps (rendered via template)."
+                type: object
+                additionalProperties: { type: string }
+              artifacts: # Named artifacts persisted from steps
+                description: "Named artifacts persisted from steps (URIs, IDs, small JSON)."
+                type: object
+                additionalProperties: { type: string }
+              ops: # Global runtime controls for the workflow
+                description: "Global runtime controls for the workflow."
+                type: object
+                properties:
+                  timeouts: # Default timeout settings
+                    type: object
+                    properties:
+                      defaultMs: { type: integer, description: "Default timeout for workflow steps in milliseconds." }
+                  retries: # Default retry settings
+                    type: object
+                    properties:
+                      max: { type: integer, description: "Maximum number of retries for workflow steps." }
+                      backoffMs: { type: integer, description: "Base backoff time in milliseconds for retries." }
+                  concurrency: { type: integer, description: "Maximum number of steps that can run concurrently." }
+                  rateLimit: # Default rate limiting
+                    type: object
+                    properties:
+                      rpm: { type: integer, description: "Default requests per minute limit for workflow steps." }
+                      rps: { type: integer, description: "Default requests per second limit for workflow steps." }
+              telemetry: # Observability for the workflow
+                description: "Observability for the workflow."
+                type: object
+                properties:
+                  opentelemetry: # OpenTelemetry settings
+                    type: object
+                    properties:
+                      enabled: { type: boolean, description: "Enable OpenTelemetry tracing/metrics for the workflow." }
+                      serviceName: { type: string, description: "Service name for workflow telemetry." }
+                  logs: # Log configuration
+                    type: object
+                    properties:
+                      redaction: { type: boolean, description: "Enable log redaction for sensitive data in workflow logs." }
+                  metrics: # Custom metrics to collect
+                    type: array
+                    items: { type: string, description: "Name of the metric to collect for the workflow." }
+              security: # Security policies for the workflow
+                type: object
+                properties:
+                  rbac: # Role-Based Access Control
+                    type: object
+                    properties:
+                      roles: { type: array, items: { type: string }, description: "Roles required to execute the workflow." }
+                      allowedCallers: # Entities allowed to trigger the workflow
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            urn: { type: string, description: "URN of the allowed caller." }
+                            uuid: { type: string, format: uuid, description: "UUID of the allowed caller." }
+                  egress: # Network egress policies for the workflow
+                    type: object
+                    properties:
+                      allowlist: { type: array, items: { type: string }, description: "List of allowed external domains/URLs for the workflow." }
+                  dataPolicy: # Data handling policies for the workflow
+                    type: object
+                    properties:
+                      classification: { type: string, enum: [Public, Internal, Confidential, PHI], description: "Data classification level for the workflow." }
+                      redactPII: { type: boolean, description: "Automatically redact PII from workflow inputs/outputs." }
+              secretsProvider: # Centralized secret management for the workflow (if needed beyond agent secrets)
+                type: object
+                properties:
+                  type: { type: string, enum: [AzureKeyVault], description: "Type of secret provider for workflow-level secrets." }
+                  azureKeyVault: # Azure Key Vault specific configuration
+                    type: object
+                    properties:
+                      vaultName: { type: string, description: "Name of the Azure Key Vault for workflow secrets." }
+                      tenantId: { type: string, description: "Azure Tenant ID for the Key Vault." }
+                      useManagedIdentity: { type: boolean, description: "Use Managed Identity for authentication to the Key Vault." }
+          status:
+            description: "Observed state of the workflow."
+            type: object
+            properties:
+              phase: { type: string, description: "Current phase of the workflow (e.g., Pending, Running, Succeeded, Failed)." } # Pending|Running|Succeeded|Failed
+              lastExecutionTime: { type: string, format: date-time, description: "Timestamp of the last workflow execution start." }
+              conditions: # Detailed status conditions
+                type: array
+                items:
+                  type: object
+                  required: [type, status]
+                  properties:
+                    type: { type: string, description: "Type of condition (e.g., Progressing, Available)." }
+                    status: { type: string, description: "Status of the condition (True, False, Unknown)." }
+                    lastTransitionTime: { type: string, format: date-time, description: "Last time the condition transitioned." }
+                    message: { type: string, description: "Human-readable message for the condition." }

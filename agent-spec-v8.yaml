@@ -1,0 +1,306 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agents.agents.optum.com
+spec:
+  group: agents.optum.com
+  names:
+    kind: Agent
+    listKind: AgentList
+    plural: agents
+    singular: agent
+  scope: Namespaced
+  versions:
+  - name: v1alpha8 # Stable, consolidated version
+    served: true
+    storage: true
+    additionalPrinterColumns:
+    - jsonPath: .spec.role
+      name: Role
+      type: string
+    - jsonPath: .spec.ownership.team
+      name: Team
+      type: string
+    - jsonPath: .status.phase
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    subresources:
+      status: {}
+    schema:
+      openAPIV3Schema:
+        description: Agent is the Schema for defining AI agents at Optum in a portable and declarative manner.
+        type: object
+        properties:
+          apiVersion: { type: string }
+          kind: { type: string }
+          metadata: { type: object }
+          spec:
+            description: AgentSpec defines the desired state and configuration of an Agent.
+            type: object
+            required: [role, goal, systemPrompt, llm, ownership]
+            properties:
+              ownership:
+                description: Defines the owning entity and contact points for the agent.
+                type: object
+                required: [team]
+                properties:
+                  user: { type: string }
+                  team: { type: string }
+                  organization: { type: string }
+                  askId: { type: string }
+                  sloEmail: { type: string, format: email }
+              role:
+                description: The designated role or title of the agent (e.g., "Senior Clinical Coder").
+                type: string
+                minLength: 5
+              goal:
+                description: The primary objective or task the agent is designed to accomplish.
+                type: string
+                minLength: 10
+              backstory:
+                description: An optional narrative background that provides context and personality to the agent.
+                type: string
+              systemPrompt:
+                description: The core system prompt or instructions that define the agent's behavior and operational guidelines.
+                type: string
+                minLength: 20
+              promptTemplateRef:
+                description: A reference to a prompt template in the central POML library (e.g., 'prompts/poml/clinical/summarize-note.poml'). This is an alternative to an inline systemPrompt.
+                type: string
+              llm:
+                description: Configuration for the Large Language Model that powers the agent.
+                type: object
+                required: [provider, model]
+                properties:
+                  provider: { type: string, enum: [AzureOpenAI, GoogleVertexAI, Anthropic] }
+                  model: { type: string }
+                  parameters:
+                    description: Fine-tuning parameters for the LLM's generation process.
+                    type: object
+                    properties:
+                      temperature: { type: number, format: float }
+                      maxTokens: { type: integer }
+                      topP: { type: number, format: float }
+                      stopSequences: { type: array, items: { type: string } }
+                  credentialsSecretRef:
+                    type: object
+                    required: [keyName]
+                    properties:
+                      keyName: { type: string }
+              ioConfig:
+                description: Defines the supported input and output formats, including schemas for structured data.
+                type: object
+                properties:
+                  inputs:
+                    type: array
+                    items:
+                      type: object
+                      required: [format]
+                      properties:
+                        format: { type: string, enum: [text, image, audio, video, json, xml, file] }
+                        schemaDefinition: { type: string }
+                  outputs:
+                    type: array
+                    items:
+                      type: object
+                      required: [format]
+                      properties:
+                        format: { type: string, enum: [text, image, audio, video, json, xml, file] }
+                        schemaDefinition: { type: string }
+              mcpServers:
+                description: A list of Model Context Provider (MCP) servers that provide external tools via the Model Context Protocol.
+                type: array
+                items:
+                  type: object
+                  required: [name, url, protocol, authentication]
+                  properties:
+                    name: { type: string }
+                    url: { type: string, format: uri }
+                    protocol: { type: string, enum: [HTTPS-SSE, HTTPS-Streaming] }
+                    authentication:
+                      type: object
+                      required: [type, oauth2_1]
+                      properties:
+                        type: { type: string, enum: [OAuth2.1] }
+                        oauth2_1:
+                          type: object
+                          required: [scopes, credentialsSecretRef]
+                          properties:
+                            scopes: { type: array, items: { type: string } }
+                            credentialsSecretRef:
+                              type: object
+                              required: [clientIdKeyName, clientSecretKeyName]
+                              properties:
+                                clientIdKeyName: { type: string }
+                                clientSecretKeyName: { type: string }
+              knowledgeBases:
+                description: Configuration for knowledge bases the agent can query.
+                type: array
+                items:
+                  type: object
+                  required: [name, type, source]
+                  properties:
+                    name: { type: string }
+                    type: { type: string, enum: [AzurePostgresPgVector, AzureCosmosDB, AzureAISearch, FileUpload] }
+                    source:
+                      type: object
+                      properties:
+                        fileUpload:
+                          description: Use files from Azure Blob Storage as a knowledge base, to be vectorized by the agent runtime.
+                          type: object
+                          required: [azureBlobSource, destinationPath]
+                          properties:
+                            azureBlobSource:
+                              type: object
+                              required: [storageAccountName, containerName, credentialsSecretRef]
+                              properties:
+                                storageAccountName: { type: string }
+                                containerName: { type: string }
+                                blobName: { type: string }
+                                credentialsSecretRef:
+                                  type: object
+                                  required: [keyName]
+                                  properties:
+                                    keyName: { type: string }
+                            destinationPath:
+                              description: The path within the container where files from Azure Blob Storage will be downloaded for processing (e.g., /tmp/kb-files).
+                              type: string
+                        azurePostgres:
+                          description: Configuration for Azure PostgreSQL with the pgvector extension.
+                          type: object
+                          required: [connectionStringSecretRef, tableName]
+                          properties:
+                            connectionStringSecretRef:
+                              description: Secret reference for the database connection string.
+                              type: object
+                              required: [keyName]
+                              properties:
+                                keyName: { type: string }
+                            tableName:
+                              description: The name of the table containing the vector data.
+                              type: string
+                        azureCosmosDB:
+                          description: Configuration for Azure Cosmos DB for NoSQL with vector search.
+                          type: object
+                          required: [connectionStringSecretRef, databaseName, containerName]
+                          properties:
+                            connectionStringSecretRef:
+                              description: Secret reference for the database connection string.
+                              type: object
+                              required: [keyName]
+                              properties:
+                                keyName: { type: string }
+                            databaseName:
+                              description: The name of the Cosmos DB database.
+                              type: string
+                            containerName:
+                              description: The name of the container with vector data.
+                              type: string
+                        azureAISearch:
+                          description: Configuration for Azure AI Search (formerly Cognitive Search).
+                          type: object
+                          required: [endpoint, indexName, apiKeySecretRef]
+                          properties:
+                            endpoint:
+                              description: The endpoint URL of the Azure AI Search service.
+                              type: string
+                              format: uri
+                            indexName:
+                              description: The name of the search index.
+                              type: string
+                            apiKeySecretRef:
+                              description: Secret reference for the Azure AI Search API key.
+                              type: object
+                              required: [keyName]
+                              properties:
+                                keyName: { type: string }
+              conversationConfig:
+                description: Optional configuration for agents that engage in conversations.
+                type: object
+                properties:
+                  greetingMessage: { type: string }
+                  suggestedPrompts: { type: array, items: { type: string } }
+              stateManagement:
+                description: Defines the configuration for agent memory and session state.
+                type: object
+                properties:
+                  memory:
+                    description: Configuration for short-term conversational memory.
+                    type: object
+                    properties:
+                      enabled: { type: boolean, default: false }
+                      type: { type: string, enum: [ConversationBuffer, ConversationSummary], default: ConversationBuffer }
+                      store:
+                        type: object
+                        required: [type]
+                        properties:
+                          type: { type: string, enum: [InMemory, Redis] }
+                          redis:
+                            type: object
+                            required: [connectionStringSecretRef]
+                            properties:
+                              connectionStringSecretRef: { type: object, required: [keyName], properties: { keyName: { type: string } } }
+                  session:
+                    description: Configuration for longer-term user session data.
+                    type: object
+                    properties:
+                      enabled: { type: boolean, default: false }
+                      store:
+                        type: object
+                        required: [type]
+                        properties:
+                          type: { type: string, enum: [InMemory, Redis] }
+                          redis:
+                            type: object
+                            required: [connectionStringSecretRef]
+                            properties:
+                              connectionStringSecretRef: { type: object, required: [keyName], properties: { keyName: { type: string } } }
+              secretsProvider:
+                type: object
+                required: [type, azureKeyVault]
+                properties:
+                  type: { type: string, enum: [AzureKeyVault] }
+                  azureKeyVault:
+                    type: object
+                    required: [vaultUri]
+                    properties:
+                      vaultUri: { type: string, format: uri }
+              securityConfig:
+                type: object
+                properties:
+                  guardrails:
+                    type: array
+                    items:
+                      type: object
+                      required: [name]
+                      properties:
+                        name: { type: string }
+                        config: { type: object, x-kubernetes-preserve-unknown-fields: true }
+                  evaluations:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, type]
+                      properties:
+                        name: { type: string }
+                        type: { type: string }
+                        datasetRef: { type: string }
+          status:
+            description: AgentStatus defines the observed state of the Agent.
+            type: object
+            properties:
+              phase: { type: string }
+              conditions:
+                type: array
+                items:
+                  type: object
+                  required: [type, status]
+                  properties:
+                    type: { type: string }
+                    status: { type: string }
+                    lastTransitionTime: { type: string, format: date-time }
+                    reason: { type: string }
+                    message: { type: string }

@@ -1,0 +1,26 @@
+apiVersion: ai.sage/v1alpha9
+kind: Agent
+metadata: { name: demo-agent }
+spec:
+  identity: { displayName: "Demo Agent", version: "1.0.0", icon: "https://example.com/icon.png" }
+  goal: "Say hello"
+  backstory: "A friendly greeter."
+  community: { docsUrl: "https://docs.example.com/agents/demo" }
+  ownership: { organization: "Optum" }
+  persona: { topics: ["demo"] }
+  ioConfig: { inputs: [{ format: text }, { format: json }], outputs: [{ format: json }] }
+  api:
+    endpoints:
+      - name: chat
+        method: POST
+        path: /api/agents/demo/chat
+        streaming: true
+        contentTypes: ["application/json"]
+  tools:
+    - name: echo
+      description: "Echo input"
+      mcp: { serverRef: { urn: "urn:mcp:utils" }, toolName: "echo" }
+  a2a:
+    card:
+      protocolVersion: "0.3.0"
+      preferredInterface: { url: "https://api.example.com/agents/demo", transport: "HTTP+JSON" }

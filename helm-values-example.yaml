@@ -1,0 +1,6 @@
+env:
+  - name: AGENT_SPEC
+    valueFrom:
+      secretKeyRef:
+        name: agent-spec-secret
+        key: agent.yaml
