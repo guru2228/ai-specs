@@ -1,11 +1,15 @@
 # Optum AgentWorkflow Specification: A Developer's Guide
-**Version:** 1.0
+**Version:** 2.0 (based on spec v1alpha2)
 **Date:** August 31, 2025
 
 ## 1. Introduction
-Welcome to the standardized framework for orchestrating AI Agents at Optum. This guide provides a comprehensive overview of the AgentWorkflow specification, a declarative, Kubernetes-native approach to defining and managing complex interactions between multiple agents.
+Welcome to the standardized framework for orchestrating AI Agents at Optum. This guide provides a comprehensive overview of the **AgentWorkflow v1alpha2 specification**, a declarative, Kubernetes-native approach to defining and managing complex interactions between multiple agents.
 
 **The Vision:** AgentWorkflows allow you to choreograph a series of tasks performed by one or more agents, enabling multi-agent collaboration, conditional logic, and state management within a single, version-controlled definition. By treating workflow definitions as code, we ensure standardization, portability, robust security, and full GitOps compatibility. You define the flow and participants, and our runtime environment handles the execution.
+
+**What's New in v1alpha2:** This version introduces more sophisticated flow control within the `topology` section, including new modes like `Aggregate` (for synchronizing parallel tasks) and `Loop` (for iterative processes), giving you greater power to model complex business logic.
+
+---
 
 ## 2. Anatomy of the AgentWorkflow Specification
 An AgentWorkflow is defined by its `.spec` section. Below is a detailed breakdown of each configuration block.
@@ -42,11 +46,10 @@ Provides an optional stable identity for the workflow itself.
 **Example:**
 ```yaml
 identity:
-  urn: "urn:optum:agentworkflows:medical-coding-review:v1alpha1"
+  urn: "urn:optum:agentworkflows:medical-coding-review:v1alpha2"
   uuid: "f1e2d3c4-b5a6-9876-5432-10fedcba9876"
   displayName: "Medical Coding Review Workflow"
-  version: "1.0.0"
-```
+  version: "1.1.0"```
 
 ### 2.3. description (Mandatory)
 A detailed description of what this workflow accomplishes.
@@ -82,18 +85,15 @@ context:
 ```
 
 ### 2.5. participants (Mandatory if `inlineOrchestrator` is not used)
-List of agents that will actively participate in the workflow (excluding an inline orchestrator).
+List of agents that will actively participate in the workflow.
 *   **Purpose**: To declare the external agents that the workflow will interact with, providing an alias for easy referencing within the `topology`.
 *   **Fields**:
     *   `alias` (string): A unique name used within the workflow to reference this participant.
     *   `agentRef` (object): Reference to a deployed Agent resource.
         *   `name` (string): Kubernetes name of the deployed Agent resource.
-        *   `identityRef` (object): Logical identity reference (URN/UUID) for cross-namespace or discovery-based referencing.
+        *   `identityRef` (object): Logical identity reference (URN/UUID).
     *   `overrides` (object): Optional per-participant overrides for this workflow instance.
-        *   `llmModel` (string): Override the LLM model.
-        *   `temperature` (number): Override the LLM temperature.
-        *   `rateLimit` (integer): Override the rate limit (RPM).
-        *   `timeoutMs` (integer): Override the default timeout (ms).
+        *   `llmModel`, `temperature`, `rateLimit` (rpm), `timeoutMs`.
 
 **Example:**
 ```yaml
@@ -101,77 +101,48 @@ participants:
   - alias: "triage-agent"
     agentRef:
       name: "clinical-triage-agent-prod"
-      identityRef:
-        urn: "urn:optum:agents:clinical:triage:v1"
-    overrides:
-      temperature: 0.5
   - alias: "coding-agent"
     agentRef:
       name: "senior-clinical-coder-prod"
-      identityRef:
-        urn: "urn:optum:agents:clinical:coder:v1"
     overrides:
       llmModel: "gpt-4-turbo-2024-04-09"
       rateLimit: 60 # 60 RPM for this workflow
-  - alias: "audit-agent"
-    agentRef:
-      name: "audit-report-generator"
 ```
 
 ### 2.6. inlineOrchestrator (Optional)
 Defines an orchestrator agent that is embedded directly within the workflow definition.
 *   **Purpose**: To allow a workflow to define its own orchestrating agent without needing to deploy it separately. This agent implicitly becomes a participant.
 *   **Fields**:
-    *   `meta` (object): Optional metadata (name, labels, annotations) for the inline orchestrator.
-    *   `spec` (object): Full `AgentSpec` defining the orchestrator agent. It includes core agent fields like `ownership`, `role`, `goal`, `systemPrompt`, `llm`, `llmGateways`, `mcpServers`, `tools`, and `stateManagement`.
+    *   `metadata` (object): Optional metadata (name, labels) for the inline orchestrator.
+    *   `spec` (object): Full `AgentSpec` defining the orchestrator agent, including fields like `ownership`, `role`, `goal`, `systemPrompt`, and `llm`.
 
 **Example:**
 ```yaml
 inlineOrchestrator:
-  meta:
+  metadata:
     name: "workflow-orchestrator-agent"
-    labels:
-      workflow-role: "orchestrator"
   spec:
     ownership:
       team: "Clinical Workflow Automation"
       organization: "Optum AI Orchestration"
       user: "workflow.manager@optum.com"
-      askId: "AWF98765-ORCH"
-      sloEmail: "workflow-alerts@optum.com"
     role: "Workflow Orchestrator"
     goal: "Manage the execution, branching, and error handling of the medical coding review workflow by calling specialized agents."
-    systemPrompt: |
-      You are an expert workflow orchestrator. Your primary role is to ensure the smooth, efficient, and compliant execution of the 'Medical Coding Review Workflow'.
-      You will receive an initial clinical note. Your tasks are:
-      1. Send the note to the 'triage-agent' to determine its complexity.
-      2. Based on the triage outcome, either directly proceed to coding or route for further human review (if 'High Complexity').
-      3. If coding is required, send the note to the 'coding-agent'.
-      4. Finally, send all results to the 'audit-agent' for report generation.
-      Use the provided tools to interact with the participating agents.
+    systemPrompt: "You are an expert workflow orchestrator. Your primary role is to ensure the smooth, efficient, and compliant execution of the 'Medical Coding Review Workflow'..."
     llm:
       provider: OpenAI
       model: gpt-4-turbo
-      parameters:
-        temperature: 0.1
-    stateManagement:
-      memory:
-        type: InMemory
-        retentionPolicy: "session"
 ```
 
 ### 2.7. orchestration (Mandatory)
 Configures the orchestrator agent and the inter-agent communication protocol.
-*   **Purpose**: To specify which agent is the orchestrator and how it communicates with other agents (A2A or Local calls).
+*   **Purpose**: To specify which agent is the orchestrator and how it communicates with other agents.
 *   **Fields**:
     *   `orchestrator` (string): The alias of the agent managing the workflow execution. Use `"inline"` if `inlineOrchestrator` is defined.
     *   `protocol` (object): Inter-agent communication protocol.
         *   `type` (string, `enum: [A2A, Local]`): Protocol for agent communication.
         *   `a2a` (object): A2A-specific configuration.
-            *   `registryServer` (string, `format: uri`): URL of the A2A Registry Server.
-            *   `registryIdentity` (object): Optional identity (URN/UUID) of the A2A registry.
-        *   `local` (object): Local-specific configuration.
-            *   `serviceDiscovery` (string): Service discovery mechanism for local calls (e.g., `DNS`).
+        *   `local` (object): Local-specific configuration (e.g., for Kubernetes DNS).
 
 **Example:**
 ```yaml
@@ -181,130 +152,101 @@ orchestration:
     type: A2A
     a2a:
       registryServer: "https://a2a.optum.com/registry/v1"
-      registryIdentity:
-        urn: "urn:optum:a2a-registries:enterprise"
-```
-Or if using a participant as orchestrator:
-```yaml
-orchestration:
-  orchestrator: "workflow-manager-agent" # Alias of an agent defined in 'participants'
-  protocol:
-    type: Local
-    local:
-      serviceDiscovery: "kubernetes-dns"
 ```
 
 ### 2.8. topology (Mandatory)
-Defines the workflow's structure and execution steps.
-*   **Purpose**: To layout the sequence, conditions, and dependencies of tasks performed by agents within the workflow.
+Defines the workflow's structure and execution steps. This is the core logic of your workflow.
+*   **Purpose**: To lay out the sequence, conditions, and dependencies of tasks performed by agents.
 *   **Fields**:
-    *   `mode` (string, `enum: [Sequential, Hierarchical, Parallel, Network]`): The overall pattern of orchestration.
+    *   `mode` (string, `enum: [Sequential, Hierarchical, Parallel, Network, Aggregate, Loop]`): The overall pattern of orchestration.
         *   `Sequential`: Steps run one after another in the defined order.
-        *   `Hierarchical`: A main orchestrator delegates to sub-orchestrators or agents.
-        *   `Parallel`: Steps can run concurrently.
-        *   `Network`: Steps define explicit dependencies, forming a DAG.
-    *   `steps` (array of objects, `minItems: 1`): List of individual workflow steps.
+        *   `Hierarchical`: A main orchestrator delegates tasks, potentially to sub-workflows.
+        *   `Parallel`: Independent steps can run concurrently.
+        *   `Network`: Steps execute based on a complex dependency graph (DAG).
+        *   **`Aggregate` (New)**: A synchronization mode where a step waits for **all** of its specified `dependencies` to complete before executing. This is useful for "join" or "fan-in" patterns.
+        *   **`Loop` (New)**: The workflow contains iterative logic, where steps can be repeated based on conditions defined in `loopConfig`.
+    *   `steps` (array of objects): The list of individual workflow steps.
         *   `name` (string): A unique name for this step.
-        *   `agentAlias` (string): The alias of the agent performing this step (from `participants` or `"inline"`). Mutually exclusive with `agentRef`.
-        *   `agentRef` (object): Direct reference to an external agent for this step (name/identityRef). Mutually exclusive with `agentAlias`.
-        *   `task` (string): The specific instruction or goal for the agent in this step.
-        *   `input` (string): Source of input for this step (e.g., `'workflow.initialInput'` or `'steps.step_name.output'`). Supports simple path-based referencing.
-        *   `condition` (string): CEL-like boolean condition for conditional execution (e.g., `'steps.triage.output.priority == "High"'`).
-        *   `dependencies` (array of strings): Names of steps that must complete before this one (for `Network` mode).
-        *   `onError` (object): Error handling strategy for the step.
-            *   `strategy` (string, `enum: [FailFast, Continue, Retry]`): Strategy on error.
-            *   `maxRetries` (integer): Max retries if `Retry`.
-            *   `backoffMs` (integer): Base backoff time for retries.
+        *   `order` (integer, **New**): An optional integer to explicitly define the execution order, which can be useful for clarity in complex sequential flows. The primary ordering is still the array index.
+        *   `agentAlias` or `agentRef`: The agent performing the task.
+        *   `task` (string): The specific instruction or goal for the agent.
+        *   `input` (string): Source of input for the step (e.g., `'workflow.initialInput'` or `'steps.triage.output.priority'`).
+        *   `condition` (string): A CEL-like boolean condition for conditional execution (e.g., `'steps.triage.output.priority == "High"'`).
+        *   `dependencies` (array of strings): For `Network` and `Aggregate` modes, lists the names of steps that must complete before this one.
+        *   `onError` (object): Step-specific error handling (`FailFast`, `Continue`, `Retry`).
+        *   `loopConfig` (object, **New**): Configuration for iterative logic. This is crucial for `Loop` mode.
+            *   `maxIterations` (integer): Sets a hard limit on the number of times a loop can run to prevent infinite loops.
 
-**Example (Sequential Mode):**
+#### Topology Examples
+
+**Example (Aggregate Mode):**
+This workflow performs two independent analyses in parallel (`analyze-risk`, `check-eligibility`) and then uses an `Aggregate` step (`finalize-report`) to combine the results once both are complete.
+
 ```yaml
 topology:
-  mode: Sequential
-  steps:
-    - name: "triage-note"
-      agentAlias: "triage-agent"
-      task: "Analyze the clinical note for complexity and urgency."
-      input: "workflow.initialInput.clinicalNote"
-    - name: "code-note"
-      agentAlias: "coding-agent"
-      task: "Assign ICD-10-CM and CPT codes based on the triaged note."
-      input: "steps.triage-note.output.processedNote"
-      condition: "steps.triage-note.output.complexity != 'High'" # Only code if not high complexity
-      onError:
-        strategy: Retry
-        maxRetries: 1
-        backoffMs: 5000
-    - name: "generate-audit-report"
-      agentAlias: "audit-agent"
-      task: "Generate a summary audit report from the coding results."
-      input: "steps.code-note.output.codingResults"
-```
-
-**Example (Network Mode with Dependencies):**
-```yaml
-topology:
-  mode: Network
+  mode: Network # Network mode allows for parallel execution based on dependencies
   steps:
     - name: "prepare-data"
       agentAlias: "data-prep-agent"
       task: "Extract and clean patient data."
-      input: "workflow.initialInput.rawData"
     - name: "analyze-risk"
-      agentAlias: "risk-assessment-agent"
+      agentAlias: "risk-agent"
       task: "Assess patient risk factors."
-      input: "steps.prepare-data.output.cleanedData"
       dependencies: ["prepare-data"]
-    - name: "recommend-treatment"
-      agentAlias: "treatment-recommender-agent"
-      task: "Recommend personalized treatment plans."
-      input: "steps.prepare-data.output.cleanedData"
+    - name: "check-eligibility"
+      agentAlias: "eligibility-agent"
+      task: "Verify patient eligibility and benefits."
       dependencies: ["prepare-data"]
     - name: "finalize-report"
       agentAlias: "reporting-agent"
-      task: "Compile all analyses into a final report."
-      input: "{ risk: steps.analyze-risk.output, treatment: steps.recommend-treatment.output }"
-      dependencies: ["analyze-risk", "recommend-treatment"]
+      task: "Compile risk and eligibility into a final report."
+      # This step aggregates the results from the two parallel steps.
+      # It will only start after BOTH analyze-risk and check-eligibility are done.
+      dependencies: ["analyze-risk", "check-eligibility"]
 ```
 
-### 2.9. variables (Optional)
-Named variables available to steps, often for template rendering.
-*   **Purpose**: To define global or workflow-level variables that can be dynamically injected into step tasks or inputs.
-*   **Fields**:
-    *   `additionalProperties` (string): Key-value pairs of variable names and their string values.
+**Example (Loop Mode):**
+This workflow attempts to resolve a medical claim. If the claim is rejected with a fixable error, the `fix-claim` step runs. The `loopConfig` ensures this process is attempted up to 3 times.
+
+```yaml
+topology:
+  mode: Loop
+  steps:
+    - name: "submit-claim"
+      agentAlias: "submission-agent"
+      task: "Submit the medical claim for processing."
+      input: "workflow.initialInput.claimData"
+    - name: "check-status"
+      agentAlias: "status-check-agent"
+      task: "Check the status of the submitted claim."
+      input: "steps.submit-claim.output.claimId"
+    - name: "fix-claim"
+      agentAlias: "correction-agent"
+      task: "Analyze the rejection reason and apply corrections to the claim."
+      input: "steps.check-status.output.rejectionDetails"
+      # This step only runs if the claim is rejected.
+      condition: "steps.check-status.output.status == 'Rejected'"
+      # The loop configuration is defined here. The orchestrator will re-run
+      # the relevant steps (submit, check) until the condition is met or iterations are maxed out.
+      loopConfig:
+        maxIterations: 3
+```
+
+### 2.9. variables & artifacts (Optional)
+*   **Purpose**: To define global variables for templating (`variables`) and to persist important outputs like file URIs or session IDs (`artifacts`).
 
 **Example:**
 ```yaml
 variables:
-  currentDate: "{{ .now.Format \"2006-01-02\" }}"
   reportTitle: "Monthly Clinical Coding Audit"
-```
-
-### 2.10. artifacts (Optional)
-Named artifacts persisted from steps.
-*   **Purpose**: To specify important outputs from workflow steps that should be stored and made accessible, typically as URIs, IDs, or small JSON blobs.
-*   **Fields**:
-    *   `additionalProperties` (string): Key-value pairs of artifact names and their values (e.g., file paths, database IDs).
-
-**Example:**
-```yaml
 artifacts:
   finalAuditReportUrl: "s3://optum-audit-reports/{{ .workflow.id }}/report.pdf"
-  codingSessionId: "{{ .steps.code-note.output.sessionId }}"
 ```
 
-### 2.11. ops (Optional)
+### 2.10. ops (Optional)
 Global runtime controls for the workflow.
-*   **Purpose**: To define default operational settings like timeouts, retries, concurrency, and rate limits that apply to all steps within the workflow.
-*   **Fields**:
-    *   `timeouts` (object): Default timeout settings.
-        *   `defaultMs` (integer): Default timeout for workflow steps in milliseconds.
-    *   `retries` (object): Default retry settings.
-        *   `max` (integer): Maximum number of retries for workflow steps.
-        *   `backoffMs` (integer): Base backoff time in milliseconds for retries.
-    *   `concurrency` (integer): Maximum number of steps that can run concurrently.
-    *   `rateLimit` (object): Default rate limiting.
-        *   `rpm` (integer): Default requests per minute limit for workflow steps.
-        *   `rps` (integer): Default requests per second limit for workflow steps.
+*   **Purpose**: To define default operational settings like timeouts, retries, concurrency, and rate limits that apply to all steps.
+*   **Fields**: `timeouts`, `retries`, `concurrency`, `rateLimit`.
 
 **Example:**
 ```yaml
@@ -314,21 +256,13 @@ ops:
   retries:
     max: 2
     backoffMs: 2000 # 2 seconds
-  concurrency: 5 # Allow up to 5 steps to run in parallel
-  rateLimit:
-    rpm: 300 # 300 requests per minute across all steps
+  concurrency: 5
 ```
 
-### 2.12. telemetry (Optional)
+### 2.11. telemetry (Optional)
 Observability configuration for the workflow.
 *   **Purpose**: To enable and configure tracing, logging, and metrics collection for the entire workflow.
-*   **Fields**:
-    *   `opentelemetry` (object): OpenTelemetry settings.
-        *   `enabled` (boolean): Enable OpenTelemetry tracing/metrics.
-        *   `serviceName` (string): Service name for workflow telemetry.
-    *   `logs` (object): Log configuration.
-        *   `redaction` (boolean): Enable log redaction for sensitive data.
-    *   `metrics` (array of strings): Custom metrics to collect.
+*   **Fields**: `opentelemetry`, `logs`, `metrics`.
 
 **Example:**
 ```yaml
@@ -338,50 +272,29 @@ telemetry:
     serviceName: "medical-coding-workflow"
   logs:
     redaction: true
-  metrics:
-    - "workflow_duration_seconds"
-    - "step_execution_count"
 ```
 
-### 2.13. security (Optional)
+### 2.12. security (Optional)
 Security policies for the workflow.
 *   **Purpose**: To define access control (RBAC), network egress rules, and data handling policies at the workflow level.
-*   **Fields**:
-    *   `rbac` (object): Role-Based Access Control.
-        *   `roles` (array of strings): Roles required to execute the workflow.
-        *   `allowedCallers` (array of objects): URN/UUID of entities allowed to trigger the workflow.
-    *   `egress` (object): Network egress policies.
-        *   `allowlist` (array of strings): List of allowed external domains/URLs for the workflow.
-    *   `dataPolicy` (object): Data handling policies.
-        *   `classification` (string, `enum: [Public, Internal, Confidential, PHI]`): Data classification level.
-        *   `redactPII` (boolean): Automatically redact PII from workflow inputs/outputs.
+*   **Fields**: `rbac`, `egress`, `dataPolicy`.
 
 **Example:**
 ```yaml
 security:
   rbac:
-    roles: ["workflow-executor", "workflow-admin"]
+    roles: ["workflow-executor"]
     allowedCallers:
-      - urn: "urn:optum:users:analytics-team"
-      - uuid: "c9b8a7d6-e5f4-3210-fedc-ba9876543210" # ID of an allowed service account
-  egress:
-    allowlist:
-      - "*.optum.com"
-      - "api.thirdpartybilling.com"
+      - urn: "urn:optum:services:claims-processor"
   dataPolicy:
     classification: PHI
     redactPII: true
 ```
 
-### 2.14. secretsProvider (Optional)
+### 2.13. secretsProvider (Optional)
 Centralized secret management for workflow-level secrets.
-*   **Purpose**: To specify how the workflow accesses sensitive information that is not directly tied to a specific participant agent (e.g., workflow-global API keys).
-*   **Fields**:
-    *   `type` (string, `enum: [AzureKeyVault]`): Type of secret provider.
-    *   `azureKeyVault` (object): Azure Key Vault specific configuration.
-        *   `vaultName` (string): Name of the Azure Key Vault.
-        *   `tenantId` (string): Azure Tenant ID.
-        *   `useManagedIdentity` (boolean): Use Managed Identity for authentication.
+*   **Purpose**: To specify how the workflow accesses sensitive information that is not directly tied to a specific participant agent.
+*   **Fields**: `type`, `azureKeyVault`.
 
 **Example:**
 ```yaml
