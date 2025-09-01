@@ -1,0 +1,1063 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+meta
+  name: knowledgebases.agents.enterprise.com
+spec:
+  group: agents.enterprise.com
+  scope: Namespaced
+  names:
+    kind: KnowledgeBase
+    listKind: KnowledgeBaseList
+    plural: knowledgebases
+    singular: knowledgebase
+    shortNames: [kb]
+  versions:
+  - name: v1alpha2 # Updated version with healthcare compliance and multi-format support
+    served: true
+    storage: true
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - name: Type
+      type: string
+      jsonPath: .spec.type
+    - name: Status
+      type: string
+      jsonPath: .status.phase
+    - name: Documents
+      type: integer
+      jsonPath: .status.documentCount
+    - name: Compliance
+      type: string
+      jsonPath: .spec.security.compliance.hipaa.enabled
+    schema:
+      openAPIV3Schema:
+        description: KnowledgeBase defines a knowledge repository with RAG capabilities for AI agents, with enhanced support for healthcare data and multi-format content.
+        type: object
+        properties:
+          apiVersion: { type: string }
+          kind: { type: string }
+          meta { type: object }
+          spec:
+            type: object
+            description: KnowledgeBaseSpec defines the desired state of a knowledge base.
+            required: [type, connection, rag]
+            properties:
+              identity:
+                type: object
+                description: Stable identity and provenance information for the knowledge base.
+                properties:
+                  urn: { type: string, description: "Unique Resource Name for the knowledge base." }
+                  uuid: { type: string, format: uuid, description: "Universally Unique Identifier for the knowledge base." }
+                  displayName: { type: string, description: "Human-readable name for the knowledge base." }
+                  version: { type: string, description: "Semantic version of the knowledge base definition." }
+                  git: # Provenance from Git
+                    type: object
+                    properties:
+                      repo: { type: string, description: "Git repository URL." }
+                      path: { type: string, description: "Path within the repository." }
+                      ref:  { type: string, description: "Git branch or tag (e.g., refs/heads/main)." }
+                      commit: { type: string, description: "Specific Git commit hash." }
+                  createdAt: { type: string, format: date-time, description: "Timestamp of knowledge base creation." }
+                  updatedAt: { type: string, format: date-time, description: "Timestamp of last knowledge base update." }
+                x-kubernetes-validations:
+                  - rule: "has(self.urn) || has(self.uuid)"
+                    message: "Provide identity.urn or identity.uuid."
+              ownership:
+                description: Defines the owning entity and contact points for the knowledge base.
+                type: object
+                required: [team]
+                properties:
+                  team: { type: string, description: "Owning team (required)." }
+                  organization: { type: string, description: "Owning organization." }
+                  user: { type: string, description: "Primary contact user." }
+                  sloEmail: { type: string, description: "Email for SLO notifications." }
+                  askId: { type: string, description: "Internal identifier for the originating request/ask." }
+              context:
+                type: object
+                properties:
+                  tenantId: { type: string, description: "Tenant identifier for multi-tenancy." }
+                  workspaceId: { type: string, description: "Workspace identifier within a tenant." }
+                  environment:
+                    type: string
+                    enum: [playground, dev, test, stage, prod]
+                    description: "The environment the knowledge base is intended for."
+                  labels:
+                    type: object
+                    additionalProperties: { type: string }
+                  tags:
+                    type: array
+                    items: { type: string }
+                  lifecycle:
+                    type: string
+                    enum: [ideation, prototype, development, testing, staging, prod]
+                    description: "Current lifecycle stage of the knowledge base."
+              type:
+                type: string
+                enum: [PostgresPgvector, AzureCosmosDb, AzureAISearch, AzureBlobStorage]
+                description: "Type of knowledge base storage and search technology."
+              connection:
+                description: "Connection details for the knowledge base storage."
+                type: object
+                required: [type]
+                properties:
+                  type:
+                    type: string
+                    enum: [PostgresPgvector, AzureCosmosDb, AzureAISearch, AzureBlobStorage]
+                    description: "Type of connection configuration."
+                  postgres:
+                    type: object
+                    description: "Azure Postgres with PGVector connection configuration."
+                    properties:
+                      connectionStringSecretRef:
+                        type: object
+                        required: [keyName]
+                        properties:
+                          keyName: { type: string, description: "Key name within the secret for connection string." }
+                          namespace: { type: string, description: "Namespace of the secret (optional, defaults to current namespace)." }
+                      database: { type: string, description: "Database name." }
+                      schema: { type: string, description: "Database schema (optional, defaults to 'public')." }
+                      table: { type: string, description: "Table name for vector storage." }
+                      vectorDimension: { type: integer, description: "Dimension of the vector embeddings." }
+                  cosmosdb:
+                    type: object
+                    description: "Azure Cosmos DB connection configuration."
+                    properties:
+                      connectionStringSecretRef:
+                        type: object
+                        required: [keyName]
+                        properties:
+                          keyName: { type: string, description: "Key name within the secret for connection string." }
+                          namespace: { type: string, description: "Namespace of the secret (optional, defaults to current namespace)." }
+                      databaseId: { type: string, description: "Cosmos DB database ID." }
+                      containerId: { type: string, description: "Cosmos DB container ID for vector storage." }
+                      vectorEmbeddingPolicy:
+                        type: object
+                        description: "Vector embedding policy configuration for Cosmos DB."
+                        properties:
+                          vectorSearch:
+                            type: object
+                            properties:
+                              algorithmConfigurations:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    name: { type: string }
+                                    kind: { type: string, enum: [hnsw] }
+                                    hnswParameters:
+                                      type: object
+                                      properties:
+                                        m: { type: integer }
+                                        efConstruction: { type: integer }
+                                        efSearch: { type: integer }
+                                        metric: { type: string, enum: [cosine, dotproduct, euclidean] }
+                  aisearch:
+                    type: object
+                    description: "Azure AI Search connection configuration."
+                    properties:
+                      endpoint: { type: string, format: uri, description: "Azure AI Search service endpoint." }
+                      indexName: { type: string, description: "Name of the search index." }
+                      apiKeySecretRef:
+                        type: object
+                        required: [keyName]
+                        properties:
+                          keyName: { type: string, description: "Key name within the secret for API key." }
+                          namespace: { type: string, description: "Namespace of the secret (optional, defaults to current namespace)." }
+                      semanticConfigurationName: { type: string, description: "Name of the semantic configuration (optional)." }
+                      vectorSearch:
+                        type: object
+                        description: "Vector search configuration for Azure AI Search."
+                        properties:
+                          algorithmConfigurations:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                name: { type: string }
+                                kind: { type: string, enum: [hnsw, bruteForce] }
+                                hnswParameters:
+                                  type: object
+                                  properties:
+                                    m: { type: integer }
+                                    efConstruction: { type: integer }
+                                    efSearch: { type: integer }
+                                vectorizer:
+                                  type: object
+                                  properties:
+                                    name: { type: string }
+                                    kind: { type: string, enum: [azureOpenAI] }
+                                    azureOpenAIParameters:
+                                      type: object
+                                      properties:
+                                        resourceName: { type: string }
+                                        deploymentId: { type: string }
+                                        modelId: { type: string }
+                  blobstorage:
+                    type: object
+                    description: "Azure Blob Storage configuration for document ingestion."
+                    properties:
+                      storageAccountName: { type: string, description: "Azure Storage Account name." }
+                      containerName: { type: string, description: "Blob container name." }
+                      blobPrefix: { type: string, description: "Optional blob prefix for filtering." }
+                      fileExtensions:
+                        type: array
+                        items: { type: string, description: "File extensions to process (e.g., .pdf, .docx)." }
+                      credentialsSecretRef:
+                        type: object
+                        required: [keyName]
+                        properties:
+                          keyName: { type: string, description: "Key name within the secret for storage credentials." }
+                          namespace: { type: string, description: "Namespace of the secret (optional, defaults to current namespace)." }
+              rag:
+                description: "Configuration for the Retrieval-Augmented Generation pipeline."
+                type: object
+                required: [ingestion, embedding, retrieval]
+                properties:
+                  ingestion:
+                    description: "Configuration for data ingestion and processing."
+                    type: object
+                    required: [contentTypes]
+                    properties:
+                      contentTypes:
+                        type: array
+                        items:
+                          type: object
+                          required: [mimeType, handlers]
+                          properties:
+                            mimeType: { type: string, description: "MIME type (e.g., application/pdf)." }
+                            handlers:
+                              type: array
+                              items:
+                                type: object
+                                required: [name]
+                                properties:
+                                  name: { type: string, description: "Handler name (e.g., pdf-extractor)." }
+                                  config:
+                                    type: object
+                                    description: "Handler-specific configuration."
+                                    properties:
+                                      # PDF-specific
+                                      extractImages: { type: boolean, description: "Extract images from PDFs." }
+                                      ocr: { type: boolean, description: "Perform OCR on scanned PDFs." }
+                                      layoutAnalysis: { type: boolean, description: "Analyze document layout." }
+                                      # Document-specific
+                                      extractHeaders: { type: boolean, description: "Extract headers from documents." }
+                                      extractFooters: { type: boolean, description: "Extract footers from documents." }
+                                      extractComments: { type: boolean, description: "Extract comments from documents." }
+                                      extractTables: { type: boolean, description: "Extract tables from documents." }
+                                      extractMetadata: { type: boolean, description: "Extract document metadata." }
+                                      # Spreadsheet-specific
+                                      extractFormulas: { type: boolean, description: "Extract spreadsheet formulas." }
+                                      # Presentation-specific
+                                      extractNotes: { type: boolean, description: "Extract presentation notes." }
+                                      extractMediaText: { type: boolean, description: "Extract text associated with media elements." }
+                                      # Image-specific
+                                      imageCaptioning: { type: boolean, description: "Generate captions for images." }
+                                      imageObjectDetection: { type: boolean, description: "Detect objects in images." }
+                                      imageTextExtraction: { type: boolean, description: "Extract text from images (OCR)." }
+                                      imageMetadataExtraction: { type: boolean, description: "Extract image metadata." }
+                                      # Audio/Video-specific
+                                      speechToTextModel: { type: string, description: "Model for speech-to-text conversion." }
+                                      speakerDiarization: { type: boolean, description: "Identify different speakers." }
+                                      videoFrameExtraction: { type: boolean, description: "Extract frames from videos." }
+                                      videoCaptioning: { type: boolean, description: "Generate captions for videos." }
+                                      audioTranscription: { type: boolean, description: "Transcribe audio content." }
+                                      # Clinical-specific
+                                      clinicalEntityRecognition: { type: boolean, description: "Identify clinical entities in text." }
+                                      medicationExtraction: { type: boolean, description: "Extract medication information." }
+                                      diagnosisExtraction: { type: boolean, description: "Extract diagnosis information." }
+                                      procedureExtraction: { type: boolean, description: "Extract procedure information." }
+                                      labValueExtraction: { type: boolean, description: "Extract lab values and units." }
+                                      clinicalNoteSummarization: { type: boolean, description: "Summarize clinical notes." }
+                                      behavioralHealthExtraction: { type: boolean, description: "Extract behavioral health information." }
+                      chunking:
+                        description: "Configuration for document chunking."
+                        type: object
+                        required: [strategy]
+                        properties:
+                          strategy:
+                            type: string
+                            enum: [token, sentence, paragraph, semantic, fixed-size, clinical-segment]
+                            description: "Chunking strategy. 'clinical-segment' uses clinical section boundaries."
+                          size: { type: integer, description: "Target chunk size (in tokens or characters)." }
+                          overlap: { type: integer, description: "Overlap between adjacent chunks." }
+                          minSize: { type: integer, description: "Minimum chunk size." }
+                          maxSize: { type: integer, description: "Maximum chunk size." }
+                          separators:
+                            type: array
+                            items: { type: string, description: "Text separators for chunking." }
+                          language: { type: string, description: "Document language for linguistic processing." }
+                          clinicalChunking:
+                            type: object
+                            description: "Clinical-specific chunking configuration."
+                            properties:
+                              useSectionBoundaries: { type: boolean, description: "Use clinical document section boundaries." }
+                              sectionHeaders: 
+                                type: array
+                                items: { type: string, description: "Clinical section headers to recognize." }
+                              minSectionSize: { type: integer, description: "Minimum size for clinical sections." }
+                      preprocessing:
+                        description: "Configuration for preprocessing steps before chunking."
+                        type: object
+                        properties:
+                          normalizeWhitespace: { type: boolean, description: "Normalize whitespace characters." }
+                          removeUnicodeControlChars: { type: boolean, description: "Remove Unicode control characters." }
+                          cleanSpecialChars: { type: boolean, description: "Clean special characters." }
+                          htmlToText: { type: boolean, description: "Convert HTML to plain text." }
+                          markdownToText: { type: boolean, description: "Convert Markdown to plain text." }
+                          jsonToText: { type: boolean, description: "Convert JSON to plain text." }
+                          xmlToText: { type: boolean, description: "Convert XML to plain text." }
+                          deduplicate: { type: boolean, description: "Remove duplicate content." }
+                          deduplicationThreshold: { type: number, description: "Threshold for content similarity." }
+                          clinicalNormalization:
+                            type: object
+                            description: "Clinical data normalization configuration."
+                            properties:
+                              normalizeDates: { type: boolean, description: "Normalize clinical dates." }
+                              normalizeMedicationNames: { type: boolean, description: "Normalize medication names to standard terms." }
+                              normalizeDiagnosisCodes: { type: boolean, description: "Normalize diagnosis codes to standard terminologies (e.g., ICD-10)." }
+                              normalizeProcedureCodes: { type: boolean, description: "Normalize procedure codes to standard terminologies (e.g., CPT, SNOMED)." }
+                      scheduling:
+                        description: "Configuration for ingestion scheduling."
+                        type: object
+                        properties:
+                          autoIngest: { type: boolean, description: "Enable automatic ingestion of new content." }
+                          schedule: { type: string, description: "Cron-like schedule for ingestion (e.g., '0 0 * * *')." }
+                          batchSize: { type: integer, description: "Number of documents to process per batch." }
+                          maxDocuments: { type: integer, description: "Maximum number of documents to ingest." }
+                          maxFileSizeMB: { type: integer, description: "Maximum file size to process (in MB)." }
+                          contentAgeThresholdDays: { type: integer, description: "Only process content newer than this threshold." }
+                  embedding:
+                    description: "Configuration for generating vector embeddings."
+                    type: object
+                    required: [model]
+                    properties:
+                      model:
+                        type: string
+                        description: "Embedding model name (e.g., text-embedding-ada-002)."
+                      provider:
+                        type: string
+                        enum: [AzureOpenAI, OpenAI, Cohere, HuggingFace, Local]
+                        description: "Provider for the embedding model."
+                      gatewayRef:
+                        type: object
+                        description: "Reference to an LLM gateway for embedding requests."
+                        properties:
+                          urn: { type: string, description: "URN of the LLM gateway." }
+                          uuid: { type: string, format: uuid, description: "UUID of the LLM gateway." }
+                      dimension: { type: integer, description: "Dimension of the generated embeddings." }
+                      batchSize: { type: integer, description: "Batch size for embedding generation." }
+                      timeoutMs: { type: integer, description: "Timeout for embedding generation requests." }
+                      retries: { type: integer, description: "Number of retries for failed embedding requests." }
+                      cache:
+                        type: object
+                        description: "Configuration for embedding caching."
+                        properties:
+                          enabled: { type: boolean, description: "Enable embedding caching." }
+                          ttlSeconds: { type: integer, description: "Time-to-live for cached embeddings." }
+                      clinical:
+                        type: object
+                        description: "Clinical-specific embedding configuration."
+                        properties:
+                          useClinicalEmbeddings: { type: boolean, description: "Use clinical-specific embedding model." }
+                          clinicalEmbeddingModel: { type: string, description: "Name of clinical embedding model (e.g., embaas)." }
+                          hybridEmbedding:
+                            type: object
+                            description: "Hybrid embedding approach combining general and clinical embeddings."
+                            properties:
+                              enabled: { type: boolean, description: "Enable hybrid embedding approach." }
+                              generalWeight: { type: number, description: "Weight for general embeddings." }
+                              clinicalWeight: { type: number, description: "Weight for clinical embeddings." }
+                  indexing:
+                    description: "Configuration for vector index creation and maintenance."
+                    type: object
+                    properties:
+                      autoIndex: { type: boolean, description: "Automatically create and update the vector index." }
+                      schedule: { type: string, description: "Cron-like schedule for index updates." }
+                      indexType:
+                        type: string
+                        enum: [hnsw, ivf, flat, bruteForce]
+                        description: "Type of vector index to create."
+                      hnsw:
+                        type: object
+                        description: "HNSW index configuration."
+                        properties:
+                          m: { type: integer, description: "Number of bi-directional links created for every new element." }
+                          efConstruction: { type: integer, description: "Size of the dynamic candidate list for construction." }
+                          efSearch: { type: integer, description: "Size of the dynamic candidate list for searching." }
+                          metric: { type: string, enum: [cosine, dotproduct, euclidean], description: "Distance metric for similarity search." }
+                      ivf:
+                        type: object
+                        description: "IVF index configuration."
+                        properties:
+                          nlist: { type: integer, description: "Number of clusters." }
+                          nprobe: { type: integer, description: "Number of clusters to probe during search." }
+                          metric: { type: string, enum: [cosine, dotproduct, euclidean], description: "Distance metric for similarity search." }
+                      hybrid:
+                        type: object
+                        description: "Hybrid search configuration (keyword + vector)."
+                        properties:
+                          enabled: { type: boolean, description: "Enable hybrid search." }
+                          keywordWeight: { type: number, description: "Weight for keyword search results." }
+                          vectorWeight: { type: number, description: "Weight for vector search results." }
+                          b: { type: number, description: "BM25 parameter b." }
+                          k1: { type: number, description: "BM25 parameter k1." }
+                  retrieval:
+                    description: "Configuration for knowledge retrieval during RAG."
+                    type: object
+                    required: [topK]
+                    properties:
+                      topK: { type: integer, description: "Number of top results to retrieve." }
+                      similarityThreshold: { type: number, description: "Minimum similarity score for retrieved results." }
+                      filters:
+                        type: array
+                        items:
+                          type: object
+                          required: [field, operator, value]
+                          properties:
+                            field: { type: string, description: "Document field to filter on." }
+                            operator:
+                              type: string
+                              enum: [eq, ne, gt, lt, gte, lte, in, nin, exists]
+                              description: "Comparison operator."
+                            value: { type: object, description: "Value to compare against." }
+                            type: { type: string, enum: [string, number, boolean, date], description: "Data type of the value." }
+                      reranking:
+                        type: object
+                        description: "Configuration for re-ranking retrieved results."
+                        properties:
+                          enabled: { type: boolean, description: "Enable re-ranking of results." }
+                          model: { type: string, description: "Model used for re-ranking (e.g., cross-encoder)." }
+                          provider: { type: string, enum: [AzureOpenAI, OpenAI, Cohere, Local], description: "Provider for the re-ranking model." }
+                          topN: { type: integer, description: "Number of results to re-rank." }
+                          minScore: { type: number, description: "Minimum score after re-ranking." }
+                      diversity:
+                        type: object
+                        description: "Configuration for result diversity."
+                        properties:
+                          enabled: { type: boolean, description: "Enable diversity in results." }
+                          method: { type: string, enum: [mmr, clustering], description: "Diversity method." }
+                          lambda: { type: number, description: "MMR diversity parameter (0-1)." }
+                          numClusters: { type: integer, description: "Number of clusters for clustering method." }
+                      recency:
+                        type: object
+                        description: "Configuration for recency-based boosting."
+                        properties:
+                          enabled: { type: boolean, description: "Enable recency boosting." }
+                          decayRate: { type: number, description: "Rate of decay for older documents." }
+                          maxAgeDays: { type: integer, description: "Maximum age of documents to consider." }
+                      queryTransformation:
+                        type: object
+                        description: "Configuration for query transformation."
+                        properties:
+                          enabled: { type: boolean, description: "Enable query transformation." }
+                          methods:
+                            type: array
+                            items:
+                              type: string
+                              enum: [query-expansion, query-rewriting, hyde, step-back, multi-query]
+                          expansionTerms: { type: integer, description: "Number of terms to expand the query with." }
+                          hyde:
+                            type: object
+                            description: "Hypothetical Document Embedding configuration."
+                            properties:
+                              enabled: { type: boolean, description: "Enable HyDE." }
+                              prompt: { type: string, description: "Prompt for generating hypothetical documents." }
+                      clinical:
+                        type: object
+                        description: "Clinical-specific retrieval configuration."
+                        properties:
+                          clinicalQueryExpansion:
+                            type: object
+                            description: "Clinical query expansion configuration."
+                            properties:
+                              enabled: { type: boolean, description: "Enable clinical query expansion." }
+                              terminologyExpansion: { type: boolean, description: "Expand query using clinical terminologies." }
+                              synonymExpansion: { type: boolean, description: "Expand query using clinical synonyms." }
+                              relatedConceptExpansion: { type: boolean, description: "Expand query using related clinical concepts." }
+                          clinicalFiltering:
+                            type: object
+                            description: "Clinical filtering configuration."
+                            properties:
+                              filterBySpecialty: { type: boolean, description: "Filter results by medical specialty." }
+                              filterByEvidenceLevel: { type: boolean, description: "Filter results by evidence level." }
+                              filterByGuidelineStatus: { type: boolean, description: "Filter results by guideline status (e.g., active, retired)." }
+                          clinicalRelevanceScoring:
+                            type: object
+                            description: "Clinical relevance scoring configuration."
+                            properties:
+                              enabled: { type: boolean, description: "Enable clinical relevance scoring." }
+                              scoringModel: { type: string, description: "Model used for clinical relevance scoring." }
+                              specialtyWeighting: { type: object, description: "Weighting for different medical specialties." }
+                  agentic:
+                    description: "Agentic RAG specific configurations."
+                    type: object
+                    properties:
+                      adaptiveRetrieval:
+                        type: object
+                        description: "Configuration for adaptive retrieval strategies."
+                        properties:
+                          enabled: { type: boolean, description: "Enable adaptive retrieval." }
+                          strategy:
+                            type: string
+                            enum: [dynamic-topK, confidence-based, multi-stage]
+                            description: "Adaptive retrieval strategy."
+                          confidenceThreshold: { type: number, description: "Confidence threshold for adaptive retrieval." }
+                          maxRetrievalAttempts: { type: integer, description: "Maximum number of retrieval attempts." }
+                          fallbackStrategies:
+                            type: array
+                            items:
+                              type: string
+                              enum: [wider-search, different-filters, query-rewriting, knowledge-base-switching]
+                      selfReflection:
+                        type: object
+                        description: "Configuration for self-reflection on retrieval results."
+                        properties:
+                          enabled: { type: boolean, description: "Enable self-reflection." }
+                          prompt: { type: string, description: "Prompt for self-reflection." }
+                          minConfidence: { type: number, description: "Minimum confidence before triggering reflection." }
+                          maxReflections: { type: integer, description: "Maximum number of reflection iterations." }
+                      queryRouting:
+                        type: object
+                        description: "Configuration for routing queries to different knowledge bases."
+                        properties:
+                          enabled: { type: boolean, description: "Enable query routing." }
+                          strategy:
+                            type: string
+                            enum: [rule-based, model-based]
+                            description: "Query routing strategy."
+                          rules:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                condition: { type: string, description: "Condition for routing rule." }
+                                targetKnowledgeBase: { type: string, description: "Target knowledge base for this rule." }
+                          model:
+                            type: object
+                            description: "Model configuration for model-based routing."
+                            properties:
+                              name: { type: string, description: "Model name." }
+                              provider: { type: string, enum: [AzureOpenAI, OpenAI, Cohere], description: "Model provider." }
+              security:
+                description: "Security configuration for the knowledge base."
+                type: object
+                properties:
+                  accessControl:
+                    type: object
+                    description: "Access control configuration."
+                    properties:
+                      enabled: { type: boolean, description: "Enable access control." }
+                      policies:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            role: { type: string, description: "Role that can access." }
+                            permissions:
+                              type: array
+                              items:
+                                type: string
+                                enum: [read, write, delete, admin]
+                            filters:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  field: { type: string, description: "Document field to filter on." }
+                                  operator: { type: string, enum: [eq, ne, gt, lt, gte, lte, in, nin] }
+                                  value: { type: object, description: "Value to filter by." }
+                  dataClassification:
+                    type: string
+                    enum: [Public, Internal, Confidential, PHI, PII, ClinicalData, BehavioralHealth, ProtectedHealthInformation]
+                    description: "Data classification level of the knowledge base content."
+                  phiRedaction:
+                    type: object
+                    description: "PHI/PII redaction configuration."
+                    properties:
+                      enabled: { type: boolean, description: "Enable PHI/PII redaction." }
+                      methods:
+                        type: array
+                        items:
+                          type: string
+                          enum: [masking, removal, replacement, encryption, pseudonymization]
+                      entities:
+                        type: array
+                        items:
+                          type: string
+                          enum: [
+                            PERSON, ORG, GPE, DATE, PHONE, EMAIL, SSN, CREDIT_CARD,
+                            MEDICAL_RECORD_NUMBER, HEALTH_PLAN_BENEFICIARY_NUMBER, ACCOUNT_NUMBER,
+                            CERTIFICATE_LICENSE_NUMBER, VEHICLE_IDENTIFIERS, DEVICE_IDENTIFIERS,
+                            WEB_URL, IP_ADDRESS, BIOMETRIC_IDENTIFIER, PHOTOGRAPH,
+                            DIAGNOSIS, TREATMENT, PRESCRIPTION, LAB_RESULT, ALLERGIES,
+                            VITAL_SIGNS, MEDICAL_HISTORY, FAMILY_HISTORY, SOCIAL_HISTORY,
+                            MENTAL_HEALTH_CONDITION, SUBSTANCE_ABUSE_HISTORY, GENETIC_INFORMATION,
+                            CLINICAL_NOTES, PROGRESS_NOTES, DISCHARGE_SUMMARY, CONSULTATION_REPORT,
+                            OPERATIVE_REPORT, RADIOLOGY_REPORT, PATHOLOGY_REPORT, LABORATORY_REPORT,
+                            NURSING_NOTES, THERAPY_NOTES, PSYCHOTHERAPY_NOTES, BEHAVIORAL_ASSESSMENT
+                          ]
+                      customPatterns:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name: { type: string, description: "Name of the custom pattern." }
+                            pattern: { type: string, description: "Regex pattern for detection." }
+                            description: { type: string, description: "Description of what the pattern detects." }
+                            replacement: { type: string, description: "Replacement string (for masking/replacement)." }
+                      clinical:
+                        type: object
+                        description: "Clinical-specific redaction configuration."
+                        properties:
+                          sensitiveClinicalDataRedaction:
+                            type: object
+                            properties:
+                              mentalHealthConditions: { type: boolean, description: "Redact mental health conditions." }
+                              substanceAbuseHistory: { type: boolean, description: "Redact substance abuse history." }
+                              geneticInformation: { type: boolean, description: "Redact genetic information." }
+                              reproductiveHealth: { type: boolean, description: "Redact reproductive health information." }
+                              sexualHealth: { type: boolean, description: "Redact sexual health information." }
+                          clinicalContextPreservation:
+                            type: object
+                            properties:
+                              preserveClinicalContext: { type: boolean, description: "Preserve clinical context while redacting PHI." }
+                              contextWindowSize: { type: integer, description: "Size of context window around redacted PHI." }
+                  encryption:
+                    type: object
+                    description: "Encryption configuration."
+                    properties:
+                      atRest: { type: boolean, description: "Encrypt data at rest." }
+                      inTransit: { type: boolean, description: "Encrypt data in transit." }
+                      keyManagement:
+                        type: string
+                        enum: [AzureKeyVault, PlatformManaged]
+                        description: "Key management system."
+                      encryptionAlgorithm: { type: string, description: "Encryption algorithm (e.g., AES-256)." }
+                  compliance:
+                    type: object
+                    description: "Compliance and regulatory configuration."
+                    properties:
+                      hipaa:
+                        type: object
+                        description: "HIPAA compliance configuration."
+                        properties:
+                          enabled: { type: boolean, description: "Enable HIPAA compliance features." }
+                          baaRequired: { type: boolean, description: "Business Associate Agreement required." }
+                          auditLogging: 
+                            type: object
+                            properties:
+                              enabled: { type: boolean, description: "Enable audit logging for HIPAA compliance." }
+                              retentionPeriodDays: { type: integer, description: "Retention period for audit logs." }
+                              logAccessPatterns: { type: boolean, description: "Log access patterns for suspicious activity." }
+                          accessControls:
+                            type: object
+                            properties:
+                              enabled: { type: boolean, description: "Enable HIPAA-compliant access controls." }
+                              roleBasedAccess: { type: boolean, description: "Use role-based access control." }
+                              leastPrivilege: { type: boolean, description: "Enforce least privilege principle." }
+                              accessReviewFrequency: { type: string, description: "Frequency of access reviews (e.g., 'quarterly')." }
+                          dataEncryption:
+                            type: object
+                            properties:
+                              enabled: { type: boolean, description: "Enable data encryption for HIPAA compliance." }
+                              encryptionAtRest: { type: boolean, description: "Encrypt data at rest." }
+                              encryptionInTransit: { type: boolean, description: "Encrypt data in transit." }
+                              keyRotation: { type: string, description: "Key rotation schedule (e.g., '90 days')." }
+                          minimumRetentionPeriod: { type: string, description: "Minimum data retention period (e.g., '7 years')." }
+                          designatedRecordSet: { type: boolean, description: "Mark as designated record set for HIPAA." }
+                      gdpr:
+                        type: object
+                        description: "GDPR compliance configuration."
+                        properties:
+                          enabled: { type: boolean, description: "Enable GDPR compliance features." }
+                          rightToErasure: { type: boolean, description: "Support right to erasure (right to be forgotten)." }
+                          dataPortability: { type: boolean, description: "Support data portability." }
+                          dataProtectionOfficer: { type: string, description: "Contact information for Data Protection Officer." }
+                          dataProcessingAgreement: { type: boolean, description: "Data Processing Agreement required." }
+                          crossBorderDataTransfer: { type: boolean, description: "Enable cross-border data transfer mechanisms." }
+                      hitrust:
+                        type: object
+                        description: "HiTrust compliance configuration."
+                        properties:
+                          enabled: { type: boolean, description: "Enable HiTrust compliance features." }
+                          certificationLevel: { type: string, description: "HiTrust certification level (e.g., 'CSF v11.3')." }
+                          assessmentFrequency: { type: string, description: "Assessment frequency (e.g., 'annually')." }
+                          implementedControls: 
+                            type: array
+                            items: { type: string, description: "HiTrust controls implemented." }
+                      clinicalSafety:
+                        type: object
+                        description: "Clinical safety configuration."
+                        properties:
+                          enabled: { type: boolean, description: "Enable clinical safety features." }
+                          clinicalGovernanceFramework: { type: string, description: "Clinical governance framework in use." }
+                          humanInTheLoop: { type: boolean, description: "Require human in the loop for clinical decisions." }
+                          escalationProcedures: { type: boolean, description: "Implement escalation procedures for high-risk scenarios." }
+                          adverseEventReporting: { type: boolean, description: "Enable adverse event reporting." }
+                          clinicalValidation: { type: boolean, description: "Require clinical validation of AI outputs." }
+                          safetyMonitoring: { type: boolean, description: "Enable continuous safety monitoring." }
+                          riskStratification:
+                            type: object
+                            description: "Clinical risk stratification configuration."
+                            properties:
+                              highRiskConditions:
+                                type: array
+                                items: { type: string, description: "Conditions considered high risk." }
+                              mediumRiskConditions:
+                                type: array
+                                items: { type: string, description: "Conditions considered medium risk." }
+                              lowRiskConditions:
+                                type: array
+                                items: { type: string, description: "Conditions considered low risk." }
+                              escalationThresholds:
+                                type: object
+                                properties:
+                                  highRisk: { type: number, description: "Threshold for high risk escalation." }
+                                  mediumRisk: { type: number, description: "Threshold for medium risk escalation." }
+              ops:
+                description: "Operational configuration for the knowledge base."
+                type: object
+                properties:
+                  resources:
+                    type: object
+                    description: "Resource allocation for ingestion and query processes."
+                    properties:
+                      cpu: { type: string, description: "CPU request/limit (e.g., '500m', '2')." }
+                      memory: { type: string, description: "Memory request/limit (e.g., '1Gi', '512Mi')." }
+                      gpu: { type: string, description: "GPU request/limit (e.g., '1')." }
+                  timeouts:
+                    type: object
+                    description: "Timeout configuration."
+                    properties:
+                      ingestionMs: { type: integer, description: "Timeout for ingestion processes." }
+                      queryMs: { type: integer, description: "Timeout for query operations." }
+                      embeddingMs: { type: integer, description: "Timeout for embedding generation." }
+                  retries:
+                    type: object
+                    description: "Retry configuration."
+                    properties:
+                      max: { type: integer, description: "Maximum number of retries." }
+                      backoffMs: { type: integer, description: "Base backoff time in milliseconds." }
+                  rateLimiting:
+                    type: object
+                    description: "Rate limiting configuration."
+                    properties:
+                      rpm: { type: integer, description: "Requests per minute limit." }
+                      burst: { type: integer, description: "Burst capacity." }
+              telemetry:
+                description: "Telemetry configuration for the knowledge base."
+                type: object
+                properties:
+                  opentelemetry:
+                    type: object
+                    description: "OpenTelemetry configuration."
+                    properties:
+                      enabled: { type: boolean, description: "Enable OpenTelemetry." }
+                      serviceName: { type: string, description: "Service name for telemetry." }
+                  logs:
+                    type: object
+                    description: "Log configuration."
+                    properties:
+                      level: { type: string, enum: [debug, info, warn, error], description: "Log level." }
+                      redaction: { type: boolean, description: "Enable log redaction for sensitive data." }
+                      clinicalLogRedaction: { type: boolean, description: "Enable redaction of clinical information in logs." }
+                  metrics:
+                    type: array
+                    items: { type: string, description: "Metrics to collect." }
+                    description: "List of metrics to collect."
+                  audit:
+                    type: object
+                    description: "Audit logging configuration."
+                    properties:
+                      enabled: { type: boolean, description: "Enable audit logging." }
+                      retentionPeriodDays: { type: integer, description: "Retention period for audit logs." }
+                      auditEvents:
+                        type: array
+                        items:
+                          type: string
+                          enum: [data-access, data-modification, configuration-change, security-event, clinical-decision]
+                      auditLevel:
+                        type: string
+                        enum: [basic, detailed, clinical]
+                        description: "Level of detail in audit logs."
+              evaluation:
+                description: "Evaluation configuration for the knowledge base."
+                type: object
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          enum: [
+                            accuracy, relevance, coherence, clinical-safety, phi-leakage, 
+                            bias, hallucination, completeness, clinical-accuracy, 
+                            guideline-adherence, evidence-based, clinical-utility
+                          ]
+                        threshold: { type: number, description: "Minimum acceptable score." }
+                        weight: { type: number, description: "Relative importance of this metric." }
+                        config:
+                          type: object
+                          properties:
+                            # Clinical-specific metrics
+                            clinicalGuidelines: { type: string, description: "Reference to clinical guidelines for accuracy checking." }
+                            specialistReviewRequired: { type: boolean, description: "Requires specialist review if below threshold." }
+                            guidelineVersion: { type: string, description: "Version of clinical guidelines to use." }
+                            evidenceHierarchy:
+                              type: array
+                              items: { type: string, description: "Hierarchy of evidence types (e.g., RCTs, cohort studies)." }
+                            # PHI leakage detection
+                            phiPatterns:
+                              type: array
+                              items: { type: string, description: "Regex patterns for PHI detection." }
+                            phiThreshold: { type: number, description: "Threshold for PHI leakage detection." }
+                            # Bias detection
+                            biasCategories:
+                              type: array
+                              items: { type: string, description: "Categories to check for bias (e.g., gender, race)." }
+                            biasThreshold: { type: number, description: "Threshold for bias detection." }
+                            # Clinical safety
+                            clinicalSafetyChecks:
+                              type: array
+                              items: { type: string, description: "Clinical safety checks to perform." }
+                            highRiskConditions:
+                              type: array
+                              items: { type: string, description: "High-risk conditions to check for." }
+                            safetyThreshold: { type: number, description: "Threshold for clinical safety." }
+                  guardrails:
+                    type: object
+                    description: "Guardrails for input and output validation."
+                    properties:
+                      input:
+                        type: object
+                        properties:
+                          filters:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                type:
+                                  type: string
+                                  enum: [
+                                    content-safety, phi-detection, clinical-safety, 
+                                    profanity, hate-speech, violence, self-harm,
+                                    medical-misinformation, clinical-guideline-violation
+                                  ]
+                                enabled: { type: boolean }
+                                severityThreshold: { type: string, enum: [low, medium, high] }
+                                action:
+                                  type: string
+                                  enum: [block, warn, sanitize, allow]
+                          clinical:
+                            type: object
+                            properties:
+                              enabled: { type: boolean }
+                              severityThreshold: { type: string, enum: [low, medium, high] }
+                              action: { type: string, enum: [block, warn, sanitize, allow] }
+                              prohibitedConditions:
+                                type: array
+                                items: { type: string, description: "Conditions that should not be diagnosed by AI." }
+                              requiredSpecialistReview:
+                                type: array
+                                items: { type: string, description: "Conditions requiring specialist review." }
+                              prohibitedQuestions:
+                                type: array
+                                items: { type: string, description: "Questions that should not be answered by AI." }
+                              clinicalGuidelineChecks:
+                                type: array
+                                items: { type: string, description: "Clinical guidelines to check against." }
+                      output:
+                        type: object
+                        properties:
+                          filters:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                type:
+                                  type: string
+                                  enum: [
+                                    content-safety, phi-leakage, clinical-safety, 
+                                    profanity, hate-speech, violence, self-harm,
+                                    medical-misinformation, clinical-guideline-violation
+                                  ]
+                                enabled: { type: boolean }
+                                severityThreshold: { type: string, enum: [low, medium, high] }
+                                action:
+                                  type: string
+                                  enum: [block, warn, sanitize, allow]
+                          clinical:
+                            type: object
+                            properties:
+                              enabled: { type: boolean }
+                              severityThreshold: { type: string, enum: [low, medium, high] }
+                              action: { type: string, enum: [block, warn, sanitize, allow] }
+                              disclaimers:
+                                type: array
+                                items: { type: string, description: "Required disclaimers for clinical outputs." }
+                              prohibitedStatements:
+                                type: array
+                                items: { type: string, description: "Statements that should never be made." }
+                              evidenceLevelRequirement: { type: string, description: "Minimum evidence level required for statements." }
+                              guidelineReferences: { type: boolean, description: "Require references to clinical guidelines." }
+                              uncertaintyQuantification: { type: boolean, description: "Require uncertainty quantification in clinical statements." }
+                  testing:
+                    type: object
+                    description: "Testing configuration for the knowledge base."
+                    properties:
+                      enabled: { type: boolean, description: "Enable testing." }
+                      testSuites:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name: { type: string, description: "Name of the test suite." }
+                            type: 
+                              type: string
+                              enum: [smoke, regression, clinical-safety, phi-protection, performance]
+                            description: { type: string, description: "Description of the test suite." }
+                            testCases:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  name: { type: string, description: "Name of the test case." }
+                                  input: { type: string, description: "Input for the test case." }
+                                  expectedOutput: { type: string, description: "Expected output for the test case." }
+                                  expectedMetrics:
+                                    type: object
+                                    properties:
+                                      accuracy: { type: number, description: "Expected accuracy score." }
+                                      phiLeakage: { type: number, description: "Expected PHI leakage score." }
+                                      clinicalSafety: { type: number, description: "Expected clinical safety score." }
+                                  clinicalValidationRequired: { type: boolean, description: "Requires clinical validation." }
+                      schedule: { type: string, description: "Cron-like schedule for test execution." }
+                      clinicalValidation:
+                        type: object
+                        description: "Clinical validation configuration."
+                        properties:
+                          enabled: { type: boolean, description: "Enable clinical validation." }
+                          validatorRoles:
+                            type: array
+                            items: { type: string, description: "Roles of clinical validators." }
+                          validationThreshold: { type: number, description: "Threshold for clinical validation." }
+                          validationProcess: { type: string, description: "Process for clinical validation." }
+              lifecycle:
+                description: "Lifecycle management configuration."
+                type: object
+                properties:
+                  retention:
+                    type: object
+                    description: "Data retention configuration."
+                    properties:
+                      policy: { type: string, enum: [time-based, event-based, manual], description: "Retention policy type." }
+                      ttlDays: { type: integer, description: "Time-to-live in days." }
+                      conditions:
+                        type: array
+                        items: { type: string, description: "Conditions for retention policy." }
+                      clinical:
+                        type: object
+                        description: "Clinical data retention configuration."
+                        properties:
+                          minimumRetentionPeriod: { type: string, description: "Minimum retention period for clinical data (e.g., '7 years')." }
+                          retentionExceptions:
+                            type: array
+                            items: { type: string, description: "Exceptions to retention policy." }
+                          legalHold: { type: boolean, description: "Support legal hold for clinical data." }
+                  archiving:
+                    type: object
+                    description: "Archiving configuration."
+                    properties:
+                      enabled: { type: boolean, description: "Enable archiving." }
+                      thresholdDays: { type: integer, description: "Age threshold for archiving." }
+                      storageClass: { type: string, description: "Storage class for archived data." }
+                      clinical:
+                        type: object
+                        description: "Clinical data archiving configuration."
+                        properties:
+                          archiveClinicalData: { type: boolean, description: "Archive clinical data." }
+                          archiveFormat: { type: string, description: "Format for archived clinical data." }
+                          archiveValidation: { type: boolean, description: "Validate archived clinical data." }
+                  versioning:
+                    type: object
+                    description: "Versioning configuration."
+                    properties:
+                      enabled: { type: boolean, description: "Enable versioning." }
+                      maxVersions: { type: integer, description: "Maximum number of versions to keep." }
+                      autoPrune: { type: boolean, description: "Automatically prune old versions." }
+                      clinical:
+                        type: object
+                        description: "Clinical data versioning configuration."
+                        properties:
+                          clinicalVersioning: { type: boolean, description: "Enable clinical data versioning." }
+                          versionRetention: { type: string, description: "Retention period for clinical versions." }
+                          auditTrail: { type: boolean, description: "Maintain audit trail of clinical data changes." }
+          status:
+            description: "Observed state of the knowledge base."
+            type: object
+            properties:
+              phase:
+                type: string
+                enum: [Pending, Creating, Ready, Failed, Updating, Deleting]
+                description: "Current phase of the knowledge base."
+              conditions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type: { type: string, description: "Type of condition (e.g., Ready, Ingesting)." }
+                    status: { type: string, description: "Status of the condition (True, False, Unknown)." }
+                    lastTransitionTime: { type: string, format: date-time, description: "Last time the condition transitioned." }
+                    reason: { type: string, description: "Machine-readable reason for the condition." }
+                    message: { type: string, description: "Human-readable message for the condition." }
+              documentCount: { type: integer, description: "Number of documents in the knowledge base." }
+              vectorCount: { type: integer, description: "Number of vectors in the index." }
+              lastIngestionTime: { type: string, format: date-time, description: "Timestamp of last ingestion." }
+              indexStatus:
+                type: object
+                description: "Status of the vector index."
+                properties:
+                  status: { type: string, description: "Index status (e.g., building, ready, failed)." }
+                  sizeBytes: { type: integer, description: "Size of the index in bytes." }
+                  lastUpdated: { type: string, format: date-time, description: "Timestamp of last index update." }
+              complianceStatus:
+                type: object
+                description: "Compliance status of the knowledge base."
+                properties:
+                  hipaa:
+                    type: object
+                    properties:
+                      status: { type: string, enum: [compliant, non-compliant, pending] }
+                      lastAuditDate: { type: string, format: date-time }
+                      issues:
+                        type: array
+                        items: { type: string }
+                  clinicalSafety:
+                    type: object
+                    properties:
+                      status: { type: string, enum: [safe, caution, unsafe, pending] }
+                      lastSafetyReview: { type: string, format: date-time }
+                      riskLevel: { type: string, enum: [low, medium, high] }
+              evaluationStatus:
+                type: object
+                description: "Evaluation status of the knowledge base."
+                properties:
+                  overallScore: { type: number }
+                  metricScores:
+                    type: object
+                    additionalProperties: { type: number }
+                  lastEvaluationTime: { type: string, format: date-time }
+                  clinicalValidation:
+                    type: object
+                    properties:
+                      validated: { type: boolean }
+                      validator: { type: string }
+                      validationDate: { type: string, format: date-time }
+                      issues:
+                        type: array
+                        items: { type: string }
