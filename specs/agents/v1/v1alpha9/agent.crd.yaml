@@ -23,7 +23,7 @@ spec:
       jsonPath: .spec.identity.version
     - name: Env
       type: string
-      jsonPath: .spec.context.environment
+      jsonPath: .spec.deploymentContext.environment
     - name: Phase
       type: string
       jsonPath: .status.phase
@@ -89,13 +89,6 @@ spec:
                   displayName: { type: string, description: "Human-readable name for the agent." }
                   icon: { type: string, description: "URL to an icon representing the agent." }
                   version: { type: string, description: "Semantic version of the agent definition." }
-                  git: # Provenance from Git
-                    type: object
-                    properties:
-                      repo: { type: string, description: "Git repository URL." }
-                      path: { type: string, description: "Path within the repository." }
-                      ref:  { type: string, description: "Git branch or tag (e.g., refs/heads/main)." }
-                      commit: { type: string, description: "Specific Git commit hash." }
                   ownerContacts: # Contact points
                     type: array
                     items: { type: string, description: "Contact email or identifier for the owner." }
@@ -104,8 +97,9 @@ spec:
                 x-kubernetes-validations: # Ensure identity is provided
                   - rule: "has(self.urn) || has(self.uuid)"
                     message: "Provide identity.urn or identity.uuid."
-              context: # Deployment/operational context
+              deploymentContext: # Deployment/operational context
                 type: object
+                description: Defines the deployment and operational context for the agent.
                 properties:
                   tenantId: { type: string, description: "Tenant identifier for multi-tenancy." }
                   workspaceId: { type: string, description: "Workspace identifier within a tenant." }
@@ -403,7 +397,7 @@ spec:
                     limits: # Rate/concurrency limits for the tool
                       type: object
                       properties:
-                        rpm: { type: integer, description: "Rate limit: requests per minute." }
+                        rpm: { type: integer, description: "Requests per minute limit." }
                         concurrency: { type: integer, description: "Maximum concurrent calls." }
                     authOverride: # Override authentication for this tool
                       type: object
@@ -485,38 +479,6 @@ spec:
                     properties:
                       ttlDays: { type: integer, description: "Time-to-live for indexed data in days." }
                       lineage: { type: boolean, description: "Track data lineage." }
-              api: # API endpoints exposed by the agent
-                type: object
-                properties:
-                  openapiRef: { type: string, format: uri, description: "Reference to an OpenAPI specification for the agent's API." }
-                  endpoints: # Specific API endpoints
-                    type: array
-                    items:
-                      type: object
-                      required: [name, method, path]
-                      properties:
-                        name: # Endpoint name/function
-                          type: string
-                          enum: [ingest, upsert, query, retrieve, chat, run, evaluate]
-                          description: "Standardized name for the endpoint function."
-                        method: # HTTP method
-                          type: string
-                          enum: [GET, POST, PUT, DELETE, PATCH]
-                          description: "HTTP method for the endpoint."
-                        path: { type: string, description: "Path for the endpoint (e.g., /api/v1/query)." }
-                        contentTypes: # Supported content types
-                          type: array
-                          items: { type: string, description: "MIME type (e.g., application/json)." }
-                        authScopes: # Required authentication scopes
-                          type: array
-                          items: { type: string, description: "OAuth scope required for this endpoint." }
-                        rateLimit: # Rate limiting for the endpoint
-                          type: object
-                          properties:
-                            rpm: { type: integer, description: "Requests per minute limit." }
-                            rps: { type: integer, description: "Requests per second limit." }
-                        streaming: { type: boolean, description: "Indicates if the endpoint supports streaming responses." }
-                        errorModelRef: { type: string, description: "Reference to the error model for this endpoint." }
               a2aRegistries: # List of Agent-to-Agent (A2A) registries
                 type: array
                 items:
@@ -534,47 +496,20 @@ spec:
                           message: "Provide registry identity URN or UUID."
                     url: { type: string, description: "Base URL for the A2A registry." }
                     protocol: { type: string, enum: [http, https, ws, wss, grpc], description: "Communication protocol." }
-                    authentication: # Authentication for the registry
+                    authentication: # Authentication for the registry (OAuth2.1 only)
                       type: object
-                      required: [type]
+                      required: [clientId, clientSecretRef, tokenUrl]
                       properties:
-                        type: { type: string, enum: [OAuth2.1, ApiKey, OIDC, ManagedIdentity, None], description: "Authentication type." }
-                        oauth2_1:
+                        clientId: { type: string, description: "OAuth2.1 client ID." }
+                        clientSecretRef: 
                           type: object
-                          description: "OAuth2.1 configuration."
-                          properties:
-                            clientId: { type: string, description: "OAuth2.1 client ID." }
-                            clientSecretRef: { type: string, description: "Reference to a Kubernetes Secret containing the client secret." }
-                            tokenUrl: { type: string, format: uri, description: "OAuth2.1 token endpoint URL." }
-                            scopes:
-                              type: array
-                              items: { type: string, description: "OAuth2.1 scope." }
-                          required: [clientId, clientSecretRef, tokenUrl]
-                        apiKey:
-                          type: object
-                          description: "API Key configuration."
-                          properties:
-                            keyHeader: { type: string, description: "HTTP header to use for the API key." }
-                            keyValueRef: { type: string, description: "Reference to a Kubernetes Secret containing the API key value." }
-                          required: [keyHeader, keyValueRef]
-                        oidc:
-                          type: object
-                          description: "OIDC configuration."
-                          properties:
-                            issuerUrl: { type: string, format: uri, description: "OIDC issuer URL." }
-                            clientId: { type: string, description: "OIDC client ID." }
-                            clientSecretRef: { type: string, description: "Reference to a Kubernetes Secret containing the client secret." }
-                            scopes:
-                              type: array
-                              items: { type: string, description: "OIDC scope." }
-                          required: [issuerUrl, clientId, clientSecretRef]
-                        managedIdentity:
-                          type: object
-                          description: "Managed Identity configuration."
-                          properties:
-                            clientId: { type: string, description: "Managed Identity client ID." }
-                            resource: { type: string, description: "Resource for which the managed identity is used." }
-                          required: [clientId, resource]
+                          required: [keyName]
+                          properties: 
+                            keyName: { type: string, description: "Key name within the Kubernetes Secret containing the client secret." }
+                        tokenUrl: { type: string, format: uri, description: "OAuth2.1 token endpoint URL." }
+                        scopes:
+                          type: array
+                          items: { type: string, description: "OAuth2.1 scope." }
               a2a: # A2A capabilities and configuration for this agent
                 type: object
                 properties:
@@ -783,21 +718,6 @@ spec:
                       cpu: { type: string, description: "CPU request/limit (e.g., '500m', '2')." }
                       memory: { type: string, description: "Memory request/limit (e.g., '1Gi', '512Mi')." }
                       gpu: { type: string, description: "GPU request/limit (e.g., '1')." }
-              telemetry: # Observability configuration
-                type: object
-                properties:
-                  opentelemetry: # OpenTelemetry settings
-                    type: object
-                    properties:
-                      enabled: { type: boolean, description: "Enable OpenTelemetry tracing/metrics." }
-                      serviceName: { type: string, description: "Service name for telemetry." }
-                  logs: # Log configuration
-                    type: object
-                    properties:
-                      redaction: { type: boolean, description: "Enable log redaction for sensitive data." }
-                  metrics: # Custom metrics to collect
-                    type: array
-                    items: { type: string, description: "Name of the metric to collect." }
               evaluation: # Agent evaluation settings
                 type: object
                 properties:
