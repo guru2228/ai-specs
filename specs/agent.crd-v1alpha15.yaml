@@ -35,37 +35,37 @@ spec:
           x-kubernetes-validations:
             - rule: |
                 !has(self.metadata) || !has(self.metadata.labels) ||
-                !(self.metadata.labels.contains('environment')) ||
+                !('environment' in self.metadata.labels) ||
                 self.metadata.labels['environment'] in ['playground','dev','test','stage','prod']
               message: "metadata.labels.environment must be one of: playground, dev, test, stage, prod."
             - rule: |
                 !has(self.metadata) || !has(self.metadata.labels) ||
-                !(self.metadata.labels.contains('lifecycle')) ||
+                !('lifecycle' in self.metadata.labels) ||
                 self.metadata.labels['lifecycle'] in ['Draft','published','development','testing','staging','prod']
               message: "metadata.labels.lifecycle must be one of: Draft, published, development, testing, staging, prod."
             - rule: |
                 !has(self.metadata) || !has(self.metadata.labels) ||
-                !(self.metadata.labels.contains('domain')) ||
+                !('domain' in self.metadata.labels) ||
                 self.metadata.labels['domain'] in ['admin','eligibility','benefits','claims','contact-center','clinical','provider','sdlc']
               message: "metadata.labels.domain must be one of: admin, eligibility, benefits, claims, contact-center, clinical, provider, sdlc."
             - rule: |
                 !has(self.metadata) || !has(self.metadata.labels) ||
-                !(self.metadata.labels.contains('tenantId')) ||
+                !('tenantId' in self.metadata.labels) ||
                 self.metadata.labels['tenantId'].matches('^[A-Za-z0-9][-A-Za-z0-9_.]{0,61}[A-Za-z0-9]$')
               message: "metadata.labels.tenantId must be 1-63 chars (alphanum, '-', '_', '.'), start/end alphanumeric."
             - rule: |
                 !has(self.metadata) || !has(self.metadata.labels) ||
-                !(self.metadata.labels.contains('workspaceId')) ||
+                !('workspaceId' in self.metadata.labels) ||
                 self.metadata.labels['workspaceId'].matches('^[A-Za-z0-9][-A-Za-z0-9_.]{0,61}[A-Za-z0-9]$')
               message: "metadata.labels.workspaceId must be 1-63 chars (alphanum, '-', '_', '.'), start/end alphanumeric."
             - rule: |
                 !has(self.metadata) || !has(self.metadata.labels) ||
-                !(self.metadata.labels.contains('market')) ||
+                !('market' in self.metadata.labels) ||
                 self.metadata.labels['market'].matches('^[A-Za-z0-9-]+(,[A-Za-z0-9-]+)*$')
               message: "metadata.labels.market must be a comma-separated list of tokens (letters, digits, hyphens)."
             - rule: |
                 !has(self.metadata) || !has(self.metadata.labels) ||
-                !(self.metadata.labels.contains('tags')) ||
+                !('tags' in self.metadata.labels) ||
                 self.metadata.labels['tags'].matches('^[A-Za-z0-9-]+(,[A-Za-z0-9-]+)*$')
               message: "metadata.labels.tags must be a comma-separated list of tokens (letters, digits, hyphens)."
           properties:
@@ -390,9 +390,48 @@ spec:
 
                 guardrails:
                   type: object
+                  description: Runtime input/output safety controls and enforcement for the agent.
                   properties:
-                    input: { type: object }
-                    output: { type: object }
+                    enforcement:
+                      type: object
+                      properties:
+                        mode: { type: string, enum: [none, warn, block], default: warn }
+                        auditSampleRate: { type: number, minimum: 0, maximum: 1 }
+                    input:
+                      type: object
+                      properties:
+                        maxInputTokens: { type: integer }
+                        allowedMimeTypes: { type: array, items: { type: string } }
+                        fileSizeLimitMB: { type: integer }
+                        forbiddenPatterns: { type: array, items: { type: string }, description: "Regex strings. Evaluated server-side." }
+                        urlAllowlist: { type: array, items: { type: string } }
+                        urlDenylist: { type: array, items: { type: string } }
+                        piiRedaction:
+                          type: object
+                          properties:
+                            enabled: { type: boolean }
+                            strategies: { type: array, items: { type: string, enum: [mask, drop, hash] } }
+                            entityTypes: { type: array, items: { type: string } }
+                            preserveFormat: { type: boolean }
+                        secretDetectors:
+                          type: array
+                          items:
+                            type: string
+                          description: "Names of built-in detectors (e.g., auth_header, api_key, cloud_keys) or custom detectors configured in runtime."
+                    output:
+                      type: object
+                      properties:
+                        maxOutputTokens: { type: integer }
+                        allowMarkdown: { type: boolean }
+                        allowCodeBlocks: { type: boolean }
+                        allowedFileTypes: { type: array, items: { type: string } }
+                        forbiddenPatterns: { type: array, items: { type: string } }
+                        urlAllowlist: { type: array, items: { type: string } }
+                        urlDenylist: { type: array, items: { type: string } }
+                        toxicityThreshold: { type: number, minimum: 0, maximum: 1 }
+                        profanityFilter: { type: boolean }
+                        piiLeakThreshold: { type: number, minimum: 0, maximum: 1 }
+                        requireSourceAttribution: { type: boolean }
 
                 dataPolicy:
                   type: object
