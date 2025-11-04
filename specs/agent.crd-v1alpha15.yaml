@@ -1,0 +1,508 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agents.agents.enterprise.com
+spec:
+  group: agents.enterprise.com
+  scope: Namespaced
+  names:
+    kind: Agent
+    listKind: AgentList
+    plural: agents
+    singular: agent
+    shortNames: [ag]
+  versions:
+    - name: v1alpha15
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Model
+          type: string
+          jsonPath: .spec.llm.model
+        - name: Env
+          type: string
+          jsonPath: .metadata.labels.environment
+        - name: Lifecycle
+          type: string
+          jsonPath: .metadata.labels.lifecycle
+        - name: Domain
+          type: string
+          jsonPath: .metadata.labels.domain
+      schema:
+        openAPIV3Schema:
+          description: Agent defines an AI Agent as configuration-as-code.
+          type: object
+          x-kubernetes-validations:
+            - rule: |
+                !has(self.metadata) || !has(self.metadata.labels) ||
+                !(self.metadata.labels.contains('environment')) ||
+                self.metadata.labels['environment'] in ['playground','dev','test','stage','prod']
+              message: "metadata.labels.environment must be one of: playground, dev, test, stage, prod."
+            - rule: |
+                !has(self.metadata) || !has(self.metadata.labels) ||
+                !(self.metadata.labels.contains('lifecycle')) ||
+                self.metadata.labels['lifecycle'] in ['Draft','published','development','testing','staging','prod']
+              message: "metadata.labels.lifecycle must be one of: Draft, published, development, testing, staging, prod."
+            - rule: |
+                !has(self.metadata) || !has(self.metadata.labels) ||
+                !(self.metadata.labels.contains('domain')) ||
+                self.metadata.labels['domain'] in ['admin','eligibility','benefits','claims','contact-center','clinical','provider','sdlc']
+              message: "metadata.labels.domain must be one of: admin, eligibility, benefits, claims, contact-center, clinical, provider, sdlc."
+            - rule: |
+                !has(self.metadata) || !has(self.metadata.labels) ||
+                !(self.metadata.labels.contains('tenantId')) ||
+                self.metadata.labels['tenantId'].matches('^[A-Za-z0-9][-A-Za-z0-9_.]{0,61}[A-Za-z0-9]$')
+              message: "metadata.labels.tenantId must be 1-63 chars (alphanum, '-', '_', '.'), start/end alphanumeric."
+            - rule: |
+                !has(self.metadata) || !has(self.metadata.labels) ||
+                !(self.metadata.labels.contains('workspaceId')) ||
+                self.metadata.labels['workspaceId'].matches('^[A-Za-z0-9][-A-Za-z0-9_.]{0,61}[A-Za-z0-9]$')
+              message: "metadata.labels.workspaceId must be 1-63 chars (alphanum, '-', '_', '.'), start/end alphanumeric."
+            - rule: |
+                !has(self.metadata) || !has(self.metadata.labels) ||
+                !(self.metadata.labels.contains('market')) ||
+                self.metadata.labels['market'].matches('^[A-Za-z0-9-]+(,[A-Za-z0-9-]+)*$')
+              message: "metadata.labels.market must be a comma-separated list of tokens (letters, digits, hyphens)."
+            - rule: |
+                !has(self.metadata) || !has(self.metadata.labels) ||
+                !(self.metadata.labels.contains('tags')) ||
+                self.metadata.labels['tags'].matches('^[A-Za-z0-9-]+(,[A-Za-z0-9-]+)*$')
+              message: "metadata.labels.tags must be a comma-separated list of tokens (letters, digits, hyphens)."
+          properties:
+            apiVersion: { type: string }
+            kind: { type: string }
+            metadata:
+              type: object
+              description: |
+                Standard Kubernetes metadata.
+                Populate classification fields via metadata.labels:
+                - tenantId, workspaceId, environment, domain, system, market, tags, lifecycle.
+              properties:
+                labels:
+                  type: object
+                  additionalProperties:
+                    type: string
+                annotations:
+                  type: object
+                  additionalProperties:
+                    type: string
+            spec:
+              type: object
+              description: AgentSpec (v1alpha15)
+              x-kubernetes-validations:
+                - rule: "has(self.systemPrompt) || has(self.promptTemplateRef)"
+                  message: "Provide either spec.systemPrompt or spec.promptTemplateRef."
+                - rule: "has(self.ownership) && (has(self.ownership.askId) || has(self.ownership.aideId))"
+                  message: "Provide ownership.askId or ownership.aideId."
+                - rule: |
+                    !has(self.techStack) || !has(self.techStack.adkVersion) ||
+                    self.techStack.adkVersion.matches('^[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?$')
+                  message: "spec.techStack.adkVersion must be semantic version-like, e.g., 2.0.6 or 2.0.6-beta."
+              required: [ownership, role, goal, llm, llmGateway]
+              properties:
+
+                # ORDER: techStack → secretsProvider → llmGateway → agentGateway → ownership → role → goal → backstory →
+                #        systemPrompt → promptTemplateRef → behavior → llm → tools → knowledgeBases →
+                #        memory → session → evaluations → guardrails → dataPolicy → a2a → community
+
+                techStack:
+                  type: object
+                  description: Technology stack for generating/porting this spec into an ADK or framework.
+                  properties:
+                    language:
+                      type: string
+                      enum: ["Python", "Typescript", "Java"]
+                      description: Primary programming language for agent implementation.
+                    adk:
+                      type: string
+                      enum: ["Agno", "Microsoft Agent Framework", "LangGraph", "Mastra", "Spring AI"]
+                      description: ADK / Agent Framework used to build the agent from this spec.
+                    adkVersion:
+                      type: string
+                      description: ADK/Framework version (semantic version, e.g., 2.0.6).
+
+                secretsProvider:
+                  type: object
+                  required: [type]
+                  properties:
+                    type: { type: string, enum: [AzureKeyVault] }
+                    azureKeyVault:
+                      type: object
+                      properties:
+                        vaultName: { type: string }
+                        tenantId: { type: string }
+                        useManagedIdentity: { type: boolean }
+
+                llmGateway:
+                  type: object
+                  description: Single enterprise LLM gateway (OAuth 2.0 only).
+                  required: [endpoint, authentication]
+                  properties:
+                    endpoint: { type: string, description: "Base URL for the LLM gateway API." }
+                    authentication:
+                      type: object
+                      description: OAuth 2.0 only.
+                      required: [type, oauth2_0]
+                      properties:
+                        type: { type: string, enum: ["OAuth2.0"] }
+                        oauth2_1:
+                          type: object
+                          required: [tokenUrl]
+                          properties:
+                            clientId: { type: string }
+                            clientSecretRef:
+                              type: object
+                              required: [keyName]
+                              properties:
+                                keyName: { type: string }
+                            tokenUrl: { type: string, format: uri }
+                            scopes:
+                              type: array
+                              items: { type: string }
+
+                agentGateway:
+                  type: object
+                  description: Single enterprise Agent Gateway supporting A2A, AG-UI, MCP (OAuth 2.0 only).
+                  required: [url, supportedProtocols, authentication]
+                  properties:
+                    url: { type: string, description: "Base URL for the Agent Gateway." }
+                    supportedProtocols:
+                      type: array
+                      items: { type: string, enum: ["A2A","AG-UI","MCP"] }
+                    authentication:
+                      type: object
+                      required: [type, oauth2_0]
+                      properties:
+                        type: { type: string, enum: ["OAuth2.0"] }
+                        oauth2_1:
+                          type: object
+                          required: [tokenUrl]
+                          properties:
+                            clientId: { type: string }
+                            clientSecretRef:
+                              type: object
+                              required: [keyName]
+                              properties:
+                                keyName: { type: string }
+                            tokenUrl: { type: string, format: uri }
+                            scopes: { type: array, items: { type: string } }
+
+                ownership:
+                  type: object
+                  description: Ownership; system backfills org/team/user from askId/aideId.
+                  properties:
+                    organization: { type: string }
+                    team: { type: string }
+                    user: { type: string }
+                    sloEmail: { type: string }
+                    askId: { type: string }
+                    aideId: { type: string }
+
+                role: { type: string }
+                goal: { type: string }
+                backstory: { type: string }
+                systemPrompt: { type: string }
+                promptTemplateRef: { type: string }
+
+                behavior:
+                  type: object
+                  description: Fine-grained behavior (tone/topics here; persona removed).
+                  properties:
+                    tone: { type: string }
+                    topics: { type: array, items: { type: string } }
+                    responseFormat:
+                      type: object
+                      properties:
+                        type: { type: string, enum: [text, json, xml] }
+                        jsonSchemaRef: { type: string }
+                    toolChoice: { type: string, enum: [auto, required, none] }
+                    reasoning:
+                      type: object
+                      properties:
+                        enabled: { type: boolean }
+                        maxReasoningTokens: { type: integer }
+                    determinism:
+                      type: object
+                      properties:
+                        seed: { type: integer }
+                        idempotencyKey: { type: string }
+                    contextWindow:
+                      type: object
+                      properties:
+                        maxPromptTokens: { type: integer }
+                        truncationStrategy: { type: string, enum: [front, middle, back] }
+
+                llm:
+                  type: object
+                  description: LLM configuration (model selection lives here). Always accessed via llmGateway.
+                  required: [model]
+                  properties:
+                    model: { type: string }
+                    parameters:
+                      type: object
+                      properties:
+                        temperature: { type: number }
+                        topP: { type: number }
+                        maxTokens: { type: integer }
+                        stopSequences: { type: array, items: { type: string } }
+
+                tools:
+                  type: array
+                  description: Tool bindings through the enterprise Agent Gateway.
+                  items:
+                    type: object
+                    required: [name, protocol, operation]
+                    properties:
+                      identity:
+                        type: object
+                        properties:
+                          urn: { type: string }
+                          uuid: { type: string, format: uuid }
+                      name: { type: string }
+                      description: { type: string }
+                      protocol: { type: string, enum: ["A2A","MCP","AG-UI"] }
+                      operation:
+                        type: string
+                        description: "For A2A: skill id; for MCP: toolName; for AG-UI: route/action."
+                      version: { type: string }
+                      schemaHash: { type: string }
+                      defaults: { type: object, additionalProperties: true }
+                      parameterMapping: { type: object, additionalProperties: { type: object } }
+                      timeoutMs: { type: integer }
+                      retries: { type: integer }
+                      cacheTTL: { type: integer }
+                      limits:
+                        type: object
+                        properties:
+                          rpm: { type: integer }
+                          concurrency: { type: integer }
+                      authOverride:
+                        type: object
+                        description: OAuth 2.1 only.
+                        required: [type, oauth2_1]
+                        properties:
+                          type: { type: string, enum: ["OAuth2.1"] }
+                          oauth2_1:
+                            type: object
+                            required: [tokenUrl]
+                            properties:
+                              clientId: { type: string }
+                              clientSecretRef:
+                                type: object
+                                required: [keyName]
+                                properties:
+                                  keyName: { type: string }
+                              tokenUrl: { type: string, format: uri }
+                              scopes: { type: array, items: { type: string } }
+
+                knowledgeBases:
+                  type: array
+                  description: Knowledge bases with embedded RAG config (embedding + chunking only).
+                  items:
+                    type: object
+                    required: [name, vectorDB]
+                    properties:
+                      identity:
+                        type: object
+                        properties:
+                          urn: { type: string }
+                          uuid: { type: string, format: uuid }
+                      name: { type: string }
+                      vectorDB:
+                        type: string
+                        enum: ["Azure Postgres", "Azure Search AI"]
+                        description: Backing vector database.
+                      connection:
+                        type: object
+                        properties:
+                          connectionStringSecretRef:
+                            type: object
+                            required: [keyName]
+                            properties:
+                              keyName: { type: string }
+                          endpoint: { type: string }
+                          database: { type: string }
+                          index: { type: string }
+                      rag:
+                        type: object
+                        description: Only embedding + chunking config.
+                        properties:
+                          embedding:
+                            type: object
+                            properties:
+                              model: { type: string }
+                              endpoint: { type: string }
+                              apiVersion: { type: string }
+                              dimension: { type: integer }
+                              authentication:
+                                type: object
+                                required: [type, oauth2_1]
+                                properties:
+                                  type: { type: string, enum: ["OAuth2.1"] }
+                                  oauth2_1:
+                                    type: object
+                                    required: [tokenUrl]
+                                    properties:
+                                      clientId: { type: string }
+                                      clientSecretRef:
+                                        type: object
+                                        required: [keyName]
+                                        properties:
+                                          keyName: { type: string }
+                                      tokenUrl: { type: string, format: uri }
+                                      scopes: { type: array, items: { type: string } }
+                          chunking:
+                            type: object
+                            properties:
+                              type: { type: string, enum: ["Fixed", "Semantic", "Recursive", "Document", "CSVRow", "Markdown"] }
+                              chunkSize: { type: integer }
+                              chunkOverlap: { type: integer }
+
+                memory:
+                  type: object
+                  properties:
+                    enabled: { type: boolean }
+                    store: { type: string, enum: [InMemory, Redis, Postgres] }
+                    table: { type: string }
+                    retentionPolicy: { type: string }
+                    agenticMemory: { type: boolean }
+                    userMemories: { type: boolean }
+                    addMemoriesToContext: { type: boolean }
+
+                session:
+                  type: object
+                  properties:
+                    enabled: { type: boolean }
+                    store: { type: string, enum: [InMemory, Redis, Postgres] }
+                    ttlSeconds: { type: integer }
+                    tableName: { type: string }
+
+                evaluations:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name: { type: string }
+                      datasetRef: { type: string }
+                      metrics: { type: array, items: { type: string } }
+                      thresholds: { type: object, additionalProperties: { type: number } }
+                      gatingPolicy: { type: string, enum: [none, warn, block] }
+
+                guardrails:
+                  type: object
+                  properties:
+                    input: { type: object }
+                    output: { type: object }
+
+                dataPolicy:
+                  type: object
+                  properties:
+                    classification: { type: string, enum: [Public, Internal, Confidential, PHI] }
+                    redactPII: { type: boolean }
+                    retentionDays: { type: integer }
+
+                a2a:
+                  type: object
+                  description: A2A protocol configuration (root-level). Publish + Agent Card.
+                  properties:
+                    publish: { type: boolean, description: "If true, publish this Agent Card in the enterprise catalog/registry." }
+                    card:
+                      type: object
+                      required:
+                        - name
+                        - description
+                        - url
+                        - version
+                        - capabilities
+                        - defaultInputModes
+                        - defaultOutputModes
+                        - skills
+                        - preferredTransport
+                        - protocolVersion
+                      properties:
+                        name: { type: string }
+                        description: { type: string }
+                        url: { type: string, format: uri }
+                        version: { type: string }
+                        documentationUrl: { type: string, format: uri }
+                        iconUrl: { type: string, format: uri }
+                        provider:
+                          type: object
+                          properties:
+                            organization: { type: string }
+                            url: { type: string, format: uri }
+                        capabilities:
+                          type: object
+                          properties:
+                            streaming: { type: boolean }
+                            pushNotifications: { type: boolean }
+                            stateTransitionHistory: { type: boolean }
+                            extensions:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  uri: { type: string }
+                                  description: { type: string }
+                                  required: { type: boolean }
+                                  params: { type: object, additionalProperties: true }
+                        defaultInputModes: { type: array, items: { type: string } }
+                        defaultOutputModes: { type: array, items: { type: string } }
+                        skills:
+                          type: array
+                          items:
+                            type: object
+                            required: [id, name, description, tags]
+                            properties:
+                              id: { type: string }
+                              name: { type: string }
+                              description: { type: string }
+                              tags: { type: array, items: { type: string } }
+                              examples: { type: array, items: { type: string } }
+                              inputModes: { type: array, items: { type: string } }
+                              outputModes: { type: array, items: { type: string } }
+                              security:
+                                type: array
+                                items:
+                                  type: object
+                                  additionalProperties:
+                                    type: array
+                                    items: { type: string }
+                        preferredTransport: { type: string, enum: ["JSONRPC","GRPC","HTTP+JSON"] }
+                        additionalInterfaces:
+                          type: array
+                          items:
+                            type: object
+                            required: [transport, url]
+                            properties:
+                              transport: { type: string, enum: ["JSONRPC","GRPC","HTTP+JSON"] }
+                              url: { type: string, format: uri }
+                        protocolVersion: { type: string }
+                        supportsAuthenticatedExtendedCard: { type: boolean }
+                        securitySchemes:
+                          type: object
+                          additionalProperties: { type: object, additionalProperties: true }
+                        security:
+                          type: array
+                          description: "List of maps binding security schemes to scopes."
+                          items:
+                            type: object
+                            additionalProperties:
+                              type: array
+                              items: { type: string }
+                        signatures:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              header: { type: object, additionalProperties: true }
+                              protected: { type: string }
+                              signature: { type: string }
+
+                community:
+                  type: object
+                  properties:
+                    docsUrl: { type: string, format: uri }
+                    examplesUrl: { type: string, format: uri }
+                    contributionGuideUrl: { type: string, format: uri }
+                    license: { type: string }
