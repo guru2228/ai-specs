@@ -135,16 +135,16 @@ spec:
 
                 llmGateway:
                   type: object
-                  description: Single enterprise LLM gateway (OAuth 2.0 only).
+                  description: Single enterprise LLM gateway (OAuth 2.1 only).
                   required: [endpoint, authentication]
                   properties:
                     endpoint: { type: string, description: "Base URL for the LLM gateway API." }
                     authentication:
                       type: object
-                      description: OAuth 2.0 only.
-                      required: [type, oauth2_0]
+                      description: OAuth 2.1 only.
+                      required: [type, oauth2_1]
                       properties:
-                        type: { type: string, enum: ["OAuth2.0"] }
+                        type: { type: string, enum: ["OAuth2.1"] }
                         oauth2_1:
                           type: object
                           required: [tokenUrl]
@@ -162,7 +162,7 @@ spec:
 
                 agentGateway:
                   type: object
-                  description: Single enterprise Agent Gateway supporting A2A, AG-UI, MCP (OAuth 2.0 only).
+                  description: Single enterprise Agent Gateway supporting A2A, AG-UI, MCP (OAuth 2.1 only).
                   required: [url, supportedProtocols, authentication]
                   properties:
                     url: { type: string, description: "Base URL for the Agent Gateway." }
@@ -171,9 +171,9 @@ spec:
                       items: { type: string, enum: ["A2A","AG-UI","MCP"] }
                     authentication:
                       type: object
-                      required: [type, oauth2_0]
+                      required: [type, oauth2_1]
                       properties:
-                        type: { type: string, enum: ["OAuth2.0"] }
+                        type: { type: string, enum: ["OAuth2.1"] }
                         oauth2_1:
                           type: object
                           required: [tokenUrl]
